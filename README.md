@@ -40,6 +40,21 @@ first start; a one-shot `migrate` service then applies `migrations/*.sql`
 before the API starts (the API waits on `service_completed_successfully`).
 Redis runs with AOF so OTPs and in-flight whispers survive a restart.
 
+## Git remote
+
+Git Credential Manager is configured globally and may be signed in as a
+different GitHub account, which makes a private repo look like it does not
+exist. Point this clone at the `gh` CLI's active account instead:
+
+```bash
+git config --local --add credential.https://github.com.helper ""
+git config --local --add credential.https://github.com.helper '!gh auth git-credential'
+```
+
+Both lines are required: the empty value clears the inherited helper list,
+and `git config <key> <value>` on its own would replace it rather than
+append. Run `gh auth status` to confirm which account is active.
+
 ## Configuration
 
 Every setting comes from the environment — see `.env.example`. Required:
