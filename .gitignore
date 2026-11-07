@@ -1,0 +1,26 @@
+# Secrets — never commit real environment files
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+# Go build output
+backend/api
+backend/api.exe
+backend/bin/
+backend/coverage.out
+
+# Flutter / Dart
+mobile/.dart_tool/
+mobile/build/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/.packages
+
+# Offline image-patch scratch
+.docker-patch/
+.Dockerfile.patch.tmp
+
+# OS / editor
+.DS_Store
+Thumbs.db
