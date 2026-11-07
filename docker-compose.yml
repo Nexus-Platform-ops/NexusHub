@@ -1,0 +1,90 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: nexus
+      POSTGRES_PASSWORD: nexusdev
+      POSTGRES_DB: nexus
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Roles only; schema is owned by the migrate service below (initdb does
+      # not recurse into the migrations/ subdirectory).
+      - ./deploy/init-roles.sql:/docker-entrypoint-initdb.d/00-roles.sql:ro
+    entrypoint:
+      - docker-entrypoint.sh
+      - postgres
+      - -c
+      - listen_addresses=*
+    healthcheck:
+      # Host TCP keeps the check unhealthy while initdb's socket-only
+      # temporary server runs the role script.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U nexus"]
+      interval: 5s
+      retries: 10
+  redis:
+    image: redis:7-alpine
+    # AOF keeps OTP state and in-flight whispers across restarts.
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    entrypoint: ["/usr/local/bin/migrate"]
+    environment:
+      MIGRATIONS_URL: postgres://nexus:nexusdev@db:5432/nexus?sslmode=disable
+      MIGRATIONS_DIR: /app/migrations
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    environment:
+      APP_ENV: development
+      ADDR: ":8080"
+      DATABASE_URL: postgres://nexus_social:dev_social@db:5432/nexus?sslmode=disable
+      DATABASE_DATING_URL: postgres://nexus_dating:dev_dating@db:5432/nexus?sslmode=disable
+      REDIS_ADDR: redis:6379
+      JWT_SECRET: dev-only-jwt-secret-change-in-production
+      PAYMENT_SIGNING_KEY: dev-only-payment-key-change-in-production
+      OTP_DEBUG: "1"
+      RATE_LIMIT_PER_MIN: "120"
+      WHISPER_TTL_SECONDS: "5"
+      SMS_PROVIDER: ${SMS_PROVIDER:-log}
+      SMS_API_URL: ${SMS_API_URL:-}
+      SMS_API_KEY: ${SMS_API_KEY:-}
+      SMS_SENDER_ID: ${SMS_SENDER_ID:-}
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-log}
+      PAYMENT_API_URL: ${PAYMENT_API_URL:-}
+      PAYMENT_API_KEY: ${PAYMENT_API_KEY:-}
+      PAYMENT_RETURN_URL: ${PAYMENT_RETURN_URL:-http://localhost:3000/wallet}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "8080:8080"
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      args:
+        NEXUS_API_URL: http://localhost:8080
+    depends_on:
+      - api
+    ports:
+      - "3000:80"
+volumes:
+  pgdata:
+  redisdata:

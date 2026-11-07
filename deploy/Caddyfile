@@ -1,0 +1,42 @@
+# Caddy edge for the production stack: automatic HTTPS, HTTP->HTTPS
+# redirect, security headers and same-origin routing.
+#
+#   /api/*  -> api:8080   (Go REST API)
+#   /*      -> web:80     (Flutter web bundle behind nginx)
+#
+# Certificates are stored in the caddy_data volume; do not delete it.
+# Requires ports 80 and 443 (TCP + UDP for HTTP/3) to be reachable.
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	handle /api/* {
+		reverse_proxy api:8080 {
+			# Overwrite (not append) so a spoofed client-supplied
+			# X-Forwarded-For cannot bypass the IP rate limiter. If a CDN
+			# is added in front of Caddy, switch this to the CDN's real-IP
+			# scheme instead.
+			header_up X-Forwarded-For {remote_host}
+		}
+	}
+
+	handle {
+		reverse_proxy web:80
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: nexus
+          POSTGRES_PASSWORD: nexusdev
+          POSTGRES_DB: nexus
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nexus"
+          --health-interval 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+    env:
+      TEST_SOCIAL_URL: postgres://nexus_social:dev_social@127.0.0.1:5432/nexus?sslmode=disable
+      TEST_DATING_URL: postgres://nexus_dating:dev_dating@127.0.0.1:5432/nexus?sslmode=disable
+      TEST_REDIS_ADDR: 127.0.0.1:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - name: Create isolated DB roles
+        run: |
+          psql postgresql://nexus:nexusdev@127.0.0.1:5432/nexus \
+            -f deploy/init-roles.sql
+          psql postgresql://nexus:nexusdev@127.0.0.1:5432/nexus \
+            -c "GRANT ALL ON SCHEMA public TO nexus_social, nexus_dating"
+      - name: Apply migrations (production runner)
+        run: go run ./cmd/migrate
+        working-directory: backend
+        env:
+          MIGRATIONS_URL: postgresql://nexus:nexusdev@127.0.0.1:5432/nexus?sslmode=disable
+          MIGRATIONS_DIR: ${{ github.workspace }}/migrations
+      - name: Go tests
+        run: go test ./... -count=1
+        working-directory: backend
+      - name: Coverage gate (>= 80% on internal packages)
+        run: |
+          go test ./internal/... -count=1 -coverpkg=./internal/... \
+            -coverprofile=coverage.out
+          go tool cover -func=coverage.out
+          COV=$(go tool cover -func=coverage.out | tail -1 | grep -o '[0-9.]*%$' | tr -d '%')
+          echo "coverage: ${COV}%"
+          awk -v c="$COV" 'BEGIN { if (c+0 < 80) { print "FAIL: coverage below 80%"; exit 1 } }'
+        working-directory: backend
+      - name: Build Docker image (API)
+        run: docker build -f Dockerfile.api -t nexus-api:${{ github.sha }} .
+      - name: Validate compose files and Caddyfile
+        run: |
+          docker compose -f docker-compose.yml config >/dev/null
+          POSTGRES_PASSWORD=ci NEXUS_SOCIAL_PASSWORD=ci NEXUS_DATING_PASSWORD=ci \
+            JWT_SECRET=ci PAYMENT_SIGNING_KEY=ci \
+            SMS_API_URL=https://sms.example.com/send SMS_API_KEY=ci SMS_SENDER_ID=Nexus \
+            PAYMENT_API_URL=https://pay.example.com/charges PAYMENT_API_KEY=ci \
+            PAYMENT_RETURN_URL=https://ci.example.com/wallet \
+            NEXUS_PUBLIC_API_URL=https://ci.example.com \
+            DOMAIN=ci.example.com ACME_EMAIL=ci@example.com \
+            docker compose -f docker-compose.prod.yml config >/dev/null
+          docker run --rm \
+            -e DOMAIN=ci.example.com -e ACME_EMAIL=ci@example.com \
+            -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2.8-alpine \
+            caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.9
+          channel: stable
+      - run: flutter pub get
+        working-directory: mobile
+      - run: flutter analyze
+        working-directory: mobile
+      - run: flutter test
+        working-directory: mobile
+      - name: Build Docker image (Web)
+        run: docker build -f Dockerfile.web -t nexus-web:${{ github.sha }} .

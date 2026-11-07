@@ -1,0 +1,163 @@
+# Production stack.
+#
+#   cp .env.production.example .env.production   # fill every value
+#   docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
+#
+# Only Caddy publishes ports (80/443). PostgreSQL, Redis, the API and the web
+# bundle stay on the compose network. Caddy terminates TLS with automatic
+# Let's Encrypt certificates; DNS for $DOMAIN must point at this host and
+# ports 80/443 must be reachable.
+#
+# Passwords are interpolated into URLs, so use URL-safe values:
+#   openssl rand -hex 32
+x-logging: &default-logging
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: nexus
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.production}
+      POSTGRES_DB: nexus
+      # Consumed by 10-roles.sh on first initialisation.
+      NEXUS_SOCIAL_PASSWORD: ${NEXUS_SOCIAL_PASSWORD:?set NEXUS_SOCIAL_PASSWORD}
+      NEXUS_DATING_PASSWORD: ${NEXUS_DATING_PASSWORD:?set NEXUS_DATING_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./deploy/init-roles.sh:/docker-entrypoint-initdb.d/10-roles.sh:ro
+    healthcheck:
+      # Host TCP, not the unix socket: initdb's temporary server only listens
+      # on the socket, so this stays unhealthy until the real server is up.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U nexus"]
+      interval: 5s
+      retries: 10
+    logging: *default-logging
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  # One-shot schema migration; the API never starts against an old schema.
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    image: nexus-api:prod
+    entrypoint: ["/usr/local/bin/migrate"]
+    environment:
+      MIGRATIONS_URL: postgres://nexus:${POSTGRES_PASSWORD}@db:5432/nexus?sslmode=disable
+      MIGRATIONS_DIR: /app/migrations
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    image: nexus-api:prod
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      ADDR: ":8080"
+      DATABASE_URL: postgres://nexus_social:${NEXUS_SOCIAL_PASSWORD:?set NEXUS_SOCIAL_PASSWORD}@db:5432/nexus?sslmode=disable
+      DATABASE_DATING_URL: postgres://nexus_dating:${NEXUS_DATING_PASSWORD:?set NEXUS_DATING_PASSWORD}@db:5432/nexus?sslmode=disable
+      REDIS_ADDR: redis:6379
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      PAYMENT_SIGNING_KEY: ${PAYMENT_SIGNING_KEY:?set PAYMENT_SIGNING_KEY}
+      OTP_DEBUG: "0"
+      RATE_LIMIT_PER_MIN: ${RATE_LIMIT_PER_MIN:-120}
+      WHISPER_TTL_SECONDS: ${WHISPER_TTL_SECONDS:-5}
+      SMS_PROVIDER: http
+      SMS_API_URL: ${SMS_API_URL:?set SMS_API_URL in .env.production}
+      SMS_API_KEY: ${SMS_API_KEY:?set SMS_API_KEY in .env.production}
+      SMS_SENDER_ID: ${SMS_SENDER_ID:?set SMS_SENDER_ID in .env.production}
+      PAYMENT_PROVIDER: http
+      PAYMENT_API_URL: ${PAYMENT_API_URL:?set PAYMENT_API_URL in .env.production}
+      PAYMENT_API_KEY: ${PAYMENT_API_KEY:?set PAYMENT_API_KEY in .env.production}
+      PAYMENT_RETURN_URL: ${PAYMENT_RETURN_URL:?set PAYMENT_RETURN_URL in .env.production}
+      SOCIAL_REDIRECT_BASE: ${SOCIAL_REDIRECT_BASE:-}
+      FACEBOOK_APP_ID: ${FACEBOOK_APP_ID:-}
+      FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
+      TIKTOK_CLIENT_KEY: ${TIKTOK_CLIENT_KEY:-}
+      TIKTOK_CLIENT_SECRET: ${TIKTOK_CLIENT_SECRET:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+      SENTRY_RELEASE: ${SENTRY_RELEASE:-}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      args:
+        NEXUS_API_URL: ${NEXUS_PUBLIC_API_URL:?set NEXUS_PUBLIC_API_URL}
+        SENTRY_DSN: ${SENTRY_WEB_DSN:-}
+        SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+        SENTRY_RELEASE: ${SENTRY_RELEASE:-}
+    image: nexus-web:prod
+    restart: unless-stopped
+    depends_on:
+      - api
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  # TLS edge: the only container with published ports. Caddy obtains and
+  # renews certificates automatically and forwards X-Forwarded-For, so the
+  # API rate limiter sees real client IPs.
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env.production}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env.production}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - web
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+volumes:
+  pgdata:
+  redisdata:
+  caddy_data:
+  caddy_config:

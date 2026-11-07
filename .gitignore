@@ -21,6 +21,9 @@ mobile/.packages
 .docker-patch/
 .Dockerfile.patch.tmp
 
+# Separate repository cloned inside the project
+Nexus-SuperApp-/
+
 # OS / editor
 .DS_Store
 Thumbs.db

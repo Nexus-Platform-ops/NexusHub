@@ -1,0 +1,21 @@
+# Build stage: compile the Flutter web app with the pinned SDK.
+FROM ghcr.io/cirruslabs/flutter:3.47.9 AS build
+ARG NEXUS_API_URL=http://localhost:8080
+ARG SENTRY_DSN=""
+ARG SENTRY_ENVIRONMENT=production
+ARG SENTRY_RELEASE=""
+WORKDIR /src
+COPY mobile/pubspec.yaml mobile/pubspec.lock ./
+RUN flutter pub get
+COPY mobile/ .
+RUN flutter build web --release \
+    --dart-define=NEXUS_API_URL=$NEXUS_API_URL \
+    --dart-define=SENTRY_DSN=$SENTRY_DSN \
+    --dart-define=SENTRY_ENVIRONMENT=$SENTRY_ENVIRONMENT \
+    --dart-define=SENTRY_RELEASE=$SENTRY_RELEASE
+
+# Serve the static bundle with nginx.
+FROM nginx:1.27-alpine
+COPY --from=build /src/build/web /usr/share/nginx/html
+EXPOSE 80
+HEALTHCHECK CMD wget -qO- http://localhost/ >/dev/null || exit 1

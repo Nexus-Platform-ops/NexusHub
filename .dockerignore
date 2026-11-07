@@ -1,0 +1,14 @@
+# Keep local secrets, evidence and build artifacts out of the build context.
+.env
+.env.*
+!.env.example
+.git
+.github
+evidence
+backups
+*.zip
+*.out
+mobile/build
+mobile/.dart_tool
+mobile/android/.gradle
+mobile/ios/Pods
