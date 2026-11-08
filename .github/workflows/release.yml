@@ -19,19 +19,22 @@ env:
 
 jobs:
   images:
-    # Docker-in-Docker: the job talks to a privileged dind daemon over TLS
+    # Docker-in-Docker: the job talks to a privileged dind daemon over TCP
     # instead of the host socket, so builds behave identically everywhere.
+    # The daemon runs without TLS — the socket lives only on the ephemeral
+    # runner's job network, and the /certs client-cert bind mount does not
+    # exist for jobs that do not run inside a container.
     runs-on: ubuntu-latest
     services:
       docker:
         image: docker:27-dind
         options: --privileged
         env:
-          DOCKER_TLS_CERTDIR: /certs
+          DOCKER_TLS_CERTDIR: ""
     env:
-      DOCKER_HOST: tcp://docker:2376
-      DOCKER_TLS_VERIFY: "1"
-      DOCKER_CERT_PATH: /certs/client
+      DOCKER_HOST: tcp://docker:2375
+      DOCKER_TLS_VERIFY: ""
+      DOCKER_CERT_PATH: ""
     outputs:
       tag: ${{ steps.build.outputs.tag }}
       digest: ${{ steps.push.outputs.digest }}
@@ -40,9 +43,8 @@ jobs:
 
       - name: Wait for the dind daemon
         run: |
-          # The service container writes the TLS CA and client certs only
-          # once its entrypoint has run; any docker command before that
-          # fails instantly with x509 errors.
+          # The service container needs a moment to start dockerd; every
+          # docker command before that fails instantly on connection refused.
           for i in $(seq 1 30); do
             if docker info >/dev/null 2>&1; then
               echo "dind ready"
