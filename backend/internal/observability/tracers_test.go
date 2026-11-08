@@ -3,6 +3,7 @@ package observability
 import (
 	"context"
 	"errors"
+	"net"
 	"testing"
 	"time"
 
@@ -139,6 +140,45 @@ func TestRedisHookPipelineSpan(t *testing.T) {
 
 	spans := sr.Ended()
 	if len(spans) != 1 || spans[0].Name() != "redis.pipeline" {
+		t.Fatalf("spans = %v", spans)
+	}
+}
+
+func TestPGXTracerString(t *testing.T) {
+	if got := (PGXTracer{Pool: "dating"}).String(); got != "PGXTracer(dating)" {
+		t.Errorf("String() = %q", got)
+	}
+}
+
+func TestRedisHookDialHookPassthrough(t *testing.T) {
+	called := false
+	next := func(context.Context, string, string) (net.Conn, error) {
+		called = true
+		return nil, nil
+	}
+	hook := RedisHook{}.DialHook(next)
+	if _, err := hook(context.Background(), "tcp", "127.0.0.1:6379"); err != nil {
+		t.Fatalf("dial hook: %v", err)
+	}
+	if !called {
+		t.Fatal("dial hook did not call through")
+	}
+}
+
+func TestRedisHookPipelineError(t *testing.T) {
+	sr, restore := installTestTracer(t)
+	defer restore()
+
+	boom := errors.New("boom")
+	hookFn := RedisHook{}.ProcessPipelineHook(func(context.Context, []redis.Cmder) error {
+		return boom
+	})
+	cmds := []redis.Cmder{redis.NewStringCmd(context.Background(), "get", "k")}
+	if err := hookFn(context.Background(), cmds); err != boom {
+		t.Fatalf("err = %v", err)
+	}
+	spans := sr.Ended()
+	if len(spans) != 1 || spans[0].Status().Code != codes.Error {
 		t.Fatalf("spans = %v", spans)
 	}
 }

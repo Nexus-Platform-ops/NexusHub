@@ -47,3 +47,20 @@ func TestTracerHelperNonNil(t *testing.T) {
 		t.Fatal("nil tracer")
 	}
 }
+
+// InitTracing with an OTLP endpoint installs a real batching provider. The
+// exporter connects lazily, so an unreachable collector endpoint still
+// initialises — spans buffer until the first failed flush, and shutdown
+// flushes without blocking the caller.
+func TestInitTracingOTLPEndpoint(t *testing.T) {
+	shutdown, err := InitTracing(context.Background(), "svc", "test", TracingConfig{
+		Endpoint: "localhost:4318",
+		Insecure: true,
+	})
+	if err != nil {
+		t.Fatalf("InitTracing: %v", err)
+	}
+	if err := shutdown(context.Background()); err != nil {
+		t.Fatalf("shutdown: %v", err)
+	}
+}

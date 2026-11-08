@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"strconv"
 	"testing"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	"nexus/backend/internal/store"
 )
@@ -266,5 +269,76 @@ func TestReportSeverity(t *testing.T) {
 		if got := reportSeverity(reason); got != want {
 			t.Errorf("reportSeverity(%q) = %q, want %q", reason, got, want)
 		}
+	}
+}
+
+// TestSafetyHighOpenGauge covers RunSafetyGauge/refreshSafetyHighOpen: the
+// gauge reports the age of the oldest open HIGH-severity report (the 30-min
+// SLA signal), and clears back to zero once the queue is empty.
+func TestSafetyHighOpenGauge(t *testing.T) {
+	resetDB(t)
+	ctx := context.Background()
+
+	testServer.refreshSafetyHighOpen(ctx)
+	if got := testutil.ToFloat64(testServer.Metrics.SafetyHighOpenSeconds); got != 0 {
+		t.Fatalf("empty queue gauge = %v, want 0", got)
+	}
+
+	// Open an underage (HIGH) report backdated 2h through the public handler.
+	_, token := makeUser(t, "gauge-reporter")
+	st, resp, _ := doReq(t, "POST", "/api/v1/reports",
+		map[string]any{"target_kind": "post", "target_id": "1", "reason": "underage"}, token)
+	needStatus(t, st, http.StatusCreated, resp)
+	if _, err := testStore.Social.Exec(ctx,
+		`UPDATE social.reports SET created_at = now() - interval '2 hours'`); err != nil {
+		t.Fatalf("backdate report: %v", err)
+	}
+
+	testServer.refreshSafetyHighOpen(ctx)
+	age := testutil.ToFloat64(testServer.Metrics.SafetyHighOpenSeconds)
+	if age < 1700 || age > 7400 {
+		t.Fatalf("gauge age = %v, want ~7200", age)
+	}
+
+	// A normal-severity report must not count toward the HIGH gauge.
+	st, resp, _ = doReq(t, "POST", "/api/v1/reports",
+		map[string]any{"target_kind": "post", "target_id": "2", "reason": "spam"}, token)
+	needStatus(t, st, http.StatusCreated, resp)
+	if _, err := testStore.Social.Exec(ctx,
+		`UPDATE social.reports SET created_at = now() - interval '10 hours' WHERE target_id='2'`); err != nil {
+		t.Fatalf("backdate normal report: %v", err)
+	}
+	testServer.refreshSafetyHighOpen(ctx)
+	if got := testutil.ToFloat64(testServer.Metrics.SafetyHighOpenSeconds); got < 1700 || got > 7400 {
+		t.Fatalf("gauge drifted by normal report: %v", got)
+	}
+
+	// Resolved reports leave the gauge.
+	if _, err := testStore.Social.Exec(ctx,
+		`UPDATE social.reports SET status='actioned' WHERE target_id='1'`); err != nil {
+		t.Fatalf("resolve report: %v", err)
+	}
+	testServer.refreshSafetyHighOpen(ctx)
+	if got := testutil.ToFloat64(testServer.Metrics.SafetyHighOpenSeconds); got != 0 {
+		t.Fatalf("gauge after resolution = %v, want 0", got)
+	}
+}
+
+// TestRunSafetyGaugeLoop starts the poller with a short interval and cancels
+// it, proving the loop ticks and shuts down cleanly.
+func TestRunSafetyGaugeLoop(t *testing.T) {
+	resetDB(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		testServer.RunSafetyGauge(ctx, 20*time.Millisecond)
+		close(done)
+	}()
+	time.Sleep(70 * time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("RunSafetyGauge did not stop after cancel")
 	}
 }
