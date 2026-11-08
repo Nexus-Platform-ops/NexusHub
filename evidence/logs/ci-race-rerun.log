@@ -1,0 +1,55 @@
+CI race-detector rerun evidence — 2026-11-08
+=============================================
+
+Repository : oddsmyanamr-cyber/nexus
+Workflow   : CI (.github/workflows/ci.yml)
+Trigger    : push to main (toolchain pins + smoke-test fix)
+
+Run 2 (authoritative) — PASS
+----------------------------
+Run ID : 42437122104
+SHA    : 8756b069731484dcd35f5384cf92bd4e6bdc155e
+URL    : https://github.com/oddsmyanamr-cyber/nexus/actions/runs/42437122104
+
+backend job (ubuntu-24.04, Go 1.27.1, gcc-14/g++-14 pinned):
+  - Create isolated DB roles              success
+  - Apply migrations (production runner)  success
+  - Go tests                              success
+  - Install GCC for the race detector     success
+  - Go tests (race detector)              success   (CGO_ENABLED=1 CC=gcc-14 CXX=g++-14)
+  - Coverage gate (>= 80%)                success
+  - Build Docker image (API)              success
+  - Validate compose files and Caddyfile  success
+
+frontend job: failure — "Build Docker image (Web)" step. Pre-existing on
+baseline (runs 42363740753, 42363950858 failed the same step before any
+of the test/asset changes); unrelated to the backend race gate.
+
+Run 1 — FAIL (superseded, documented for traceability)
+------------------------------------------------------
+Run ID : 42436256140
+SHA    : 35fa349501e1a54649ff891ee27eccef436136a5
+Failure: "Go tests" step — TestSmokeAllEndpointsAuthenticated targeted
+posts/1, threads/1, which exist on a freshly migrated CI database (ID
+assignment starts at 1); local nexus_ci_cov had accumulated rows, so the
+order/state dependence did not show locally.
+Fix    : commit 8756b06 — authed smoke cases use IDs no test can create
+(987654321); GET comments allows 200-empty for a missing post.
+
+Local pre-verification (CI-equivalent repro)
+--------------------------------------------
+Container: throwaway postgis/postgis:16-3.4 (same image as CI service),
+fresh nexus DB, deploy/init-roles.sql, cmd/migrate — mirroring ci.yml.
+  go test ./... -count=1        -> ok  nexus/backend/... (10/10 packages)
+  go test -race ./... -count=1  -> ok  nexus/backend/... (10/10 packages)
+Local race toolchain: winlibs GCC 16.2.0 (portable, user-local).
+Repro container removed after verification.
+
+Toolchain pins
+--------------
+backend/go.mod     : toolchain go1.27.1 (go directive 1.23.0 unchanged)
+ci.yml backend job : runs-on ubuntu-24.04, actions/setup-go go-version
+                     "1.27.1", gcc-14/g++-14 via apt for the race step.
+Note: winlibs GCC 16.2.0 has no apt equivalent on ubuntu-24.04; the race
+detector links a prebuilt tsan runtime, so the gcc minor version does not
+affect race detection.
