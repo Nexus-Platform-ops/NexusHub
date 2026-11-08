@@ -1,0 +1,28 @@
+	nexus/backend/cmd/api		coverage: 0.0% of statements
+	nexus/backend/cmd/migrate		coverage: 0.0% of statements
+ok  	nexus/backend/internal/api	14.933s	coverage: 87.0% of statements
+ok  	nexus/backend/internal/auth	2.552s	coverage: 94.4% of statements
+ok  	nexus/backend/internal/config	2.287s	coverage: 95.2% of statements
+ok  	nexus/backend/internal/covergate	2.224s	coverage: [no statements]
+ok  	nexus/backend/internal/observability	3.301s	coverage: 84.2% of statements
+ok  	nexus/backend/internal/payments	3.385s	coverage: 88.5% of statements
+ok  	nexus/backend/internal/ratelimit	2.304s	coverage: 100.0% of statements
+ok  	nexus/backend/internal/sms	3.384s	coverage: 87.9% of statements
+ok  	nexus/backend/internal/socialprov	3.354s	coverage: 93.6% of statements
+ok  	nexus/backend/internal/store	3.781s	coverage: 67.5% of statements
+EXIT:0
+=== RUN   TestCoverageGate
+    gate_test.go:76: open coverprofile "../evidence/go-coverage.out": open ../evidence/go-coverage.out: The system cannot find the path specified. (run the full suite with -coverprofile first)
+--- FAIL: TestCoverageGate (0.00s)
+FAIL
+FAIL	nexus/backend/internal/covergate	1.688s
+FAIL
+GATE_EXIT:1
+
+=== gate re-run after covergate path-resolution fix (gate_test.go resolveProfile) ===
+=== RUN   TestCoverageGate
+    gate_test.go:92: total statement coverage: 84.8% (2099/2474 statements)
+--- PASS: TestCoverageGate (0.00s)
+PASS
+ok  	nexus/backend/internal/covergate	1.436s
+GATE_EXIT:0
