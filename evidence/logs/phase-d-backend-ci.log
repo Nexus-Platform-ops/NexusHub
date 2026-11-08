@@ -1,0 +1,45 @@
+Phase D — backend CI evidence
+=============================
+
+Commits:
+- 93a5d8f Add Phase D security: KMS envelope crypto, attestation, DSR, pentest prep
+- 23ec996 Add unit tests for attest and email packages (coverage gate fix)
+
+Primary run: CI workflow run 42447106949 @ 23ec996 (push to main)
+URL: https://github.com/oddsmyanamr-cyber/nexus/actions/runs/42447106949
+
+Backend job (ID 128626908375 scope: full job list below from run view):
+- Create isolated DB roles            PASS
+- Apply migrations (production runner) PASS
+- Go tests                             PASS  (incl. new: TestAttestationFlow,
+                                               TestDSRExportFlow, TestDSRDeleteFlow,
+                                               TestTrilaterationHarness 500/500 bucket-only,
+                                               TestRLSBypassAttempts 20/20,
+                                               TestWhisperForensic, TestJWTTamperAndReplay,
+                                               TestRateLimitEvade, TestOTPBruteForce)
+- Go tests (race detector)             PASS
+- Coverage gate (>= 80%)               PASS  (80.7% after attest/email unit tests;
+                                               78.9% on 93a5d8f → fixed in 23ec996)
+- Build Docker image (API)             PASS
+- Validate compose files and Caddyfile PASS
+
+First attempt note: run 42446665369 @ 93a5d8f failed ONLY at the coverage gate
+(78.9% < 80%); all functional steps including race detector passed. Fixed by
+23ec996 (attest + email unit tests).
+
+Pre-existing failure (NOT Phase D scope, reproduced identically on run
+42443568859 before any Phase D commit):
+- frontend job > "Build Docker image (Web)": ghcr.io/cirruslabs/flutter:3.47.9
+  not found — the cirruslabs registry's newest tag is ~3.29.x; no 3.47.x image
+  exists (verified via ghcr tag/manifest API: 3.47.7 and 3.47.9 both 404).
+  flutter analyze and flutter test steps PASS. Needs a decision: pin
+  Dockerfile.web to a published tag (version skew vs SDK 3.47.9) or build the
+  web bundle in CI with subosito/flutter-action and COPY it into nginx.
+
+Local verification (2026-11-07, disposable DB nexus_ci_d — local nexus/nexus_test
+untouched per project ownership rule):
+- createdb nexus_ci_d; CREATE EXTENSION postgis; migrations 001-007 applied
+- go build ./... OK; go vet ./... OK
+- go test ./... : 12/12 packages PASS against nexus_ci_d + Redis
+- coverage: 80.7% total (gate: >=80%)
+- race detector: not runnable locally (no C compiler on host); CI race job PASS
