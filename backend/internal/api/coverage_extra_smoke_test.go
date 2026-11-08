@@ -141,10 +141,12 @@ func TestSmokeAllEndpointsAuthenticated(t *testing.T) {
 		{"DELETE", "/api/v1/auth/social/link/facebook", smokeCase{token: true, want: []int{http.StatusOK, http.StatusNotFound}}},
 		{"POST", "/api/v1/posts", smokeCase{token: true, body: map[string]any{"content": "smoke post"}, want: []int{http.StatusCreated, http.StatusBadRequest}}},
 		{"GET", "/api/v1/posts", smokeCase{token: true, want: []int{http.StatusOK}}},
-		{"GET", "/api/v1/posts/1", smokeCase{token: true, want: []int{http.StatusNotFound, http.StatusOK}}},
-		{"POST", "/api/v1/posts/1/reactions", smokeCase{token: true, body: map[string]any{"kind": "like"}, want: []int{http.StatusNotFound, http.StatusBadRequest}}},
-		{"GET", "/api/v1/posts/1/comments", smokeCase{token: true, want: []int{http.StatusNotFound, http.StatusOK}}},
-		{"POST", "/api/v1/posts/1/comments", smokeCase{token: true, body: map[string]any{"body": "smoke"}, want: []int{http.StatusNotFound, http.StatusBadRequest}}},
+		// IDs that no test can create: existence failures must not depend on
+		// whatever ID 1 happens to be in a fresh database.
+		{"GET", "/api/v1/posts/987654321", smokeCase{token: true, want: []int{http.StatusNotFound}}},
+		{"POST", "/api/v1/posts/987654321/reactions", smokeCase{token: true, body: map[string]any{"kind": "like"}, want: []int{http.StatusNotFound}}},
+		{"GET", "/api/v1/posts/987654321/comments", smokeCase{token: true, want: []int{http.StatusNotFound, http.StatusOK}}},
+		{"POST", "/api/v1/posts/987654321/comments", smokeCase{token: true, body: map[string]any{"body": "smoke"}, want: []int{http.StatusNotFound}}},
 		{"GET", "/api/v1/dating/profile", smokeCase{token: true, want: []int{http.StatusOK, http.StatusNotFound}}},
 		{"PUT", "/api/v1/dating/profile", smokeCase{token: true, body: map[string]any{"nickname": "smoke"}, want: []int{http.StatusOK}}},
 		{"GET", "/api/v1/radar?lat=16.8&lng=96.15", smokeCase{token: true, want: []int{http.StatusOK}}},
@@ -162,8 +164,8 @@ func TestSmokeAllEndpointsAuthenticated(t *testing.T) {
 		{"POST", "/api/v1/market/orders", smokeCase{token: true, body: map[string]any{"product_id": 987654321}, want: []int{http.StatusNotFound, http.StatusBadRequest}}},
 		{"POST", "/api/v1/chat/threads", smokeCase{token: true, body: map[string]any{"mode": "personal", "peer_id": uidB}, want: []int{http.StatusCreated, http.StatusNotFound, http.StatusBadRequest}}},
 		{"GET", "/api/v1/chat/threads", smokeCase{token: true, want: []int{http.StatusOK}}},
-		{"GET", "/api/v1/chat/threads/1/messages", smokeCase{token: true, want: []int{http.StatusNotFound, http.StatusOK}}},
-		{"POST", "/api/v1/chat/threads/1/messages", smokeCase{token: true, body: map[string]any{"body": "smoke"}, want: []int{http.StatusNotFound, http.StatusBadRequest}}},
+		{"GET", "/api/v1/chat/threads/987654321/messages", smokeCase{token: true, want: []int{http.StatusNotFound}}},
+		{"POST", "/api/v1/chat/threads/987654321/messages", smokeCase{token: true, body: map[string]any{"body": "smoke"}, want: []int{http.StatusNotFound}}},
 	}
 	for _, tc := range cases {
 		t.Run("authed "+tc.method+" "+tc.path, func(t *testing.T) {
