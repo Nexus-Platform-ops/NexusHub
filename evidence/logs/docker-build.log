@@ -1,0 +1,52 @@
+G5 Docker build evidence — 2026-11-08
+=====================================
+
+Built on the CI runner (the local sandbox cannot build images — outbound
+apk/CDN access is blocked), per the Phase B fallback plan.
+
+Authoritative run — PASS
+------------------------
+Workflow : Release (.github/workflows/release.yml)
+Run ID   : 42440358011
+SHA      : cc8a70d40519dd876a5455a772f039e4abbb3ff4
+URL      : https://github.com/oddsmyanamr-cyber/nexus/actions/runs/42440358011
+
+images job (ubuntu-latest, docker:27-dind service, privileged):
+  - dind daemon ready          02:53:10Z (tcp://127.0.0.1:2375, TLS disabled)
+  - GHCR login                 success (docker login, GITHUB_TOKEN)
+  - Build API image            success in ~60s
+  - Size gate (<100MB)         PASS — 25MiB (25,770,391 bytes) uncompressed
+  - Push to GHCR               success
+
+Image
+-----
+Registry : ghcr.io/oddsmyanamr-cyber/nexus-api
+Tag      : main-cc8a70d40519
+Digest   : sha256:0e437a474c5044cacddec91c5037d3de67598ab5d7c42398448e4619f603da8a
+Size     : 25.8MB (docker images table); 25MiB/25,770,391 bytes uncompressed
+Bases    : golang:1.27.1-bookworm (builder, matches go.mod toolchain pin)
+           gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c8918...
+           (final, resolved at build time)
+Contents : /usr/local/bin/api + /usr/local/bin/migrate, /app/migrations,
+           CA certificates + tzdata copied from the builder; non-root user;
+           no shell/package manager; probes are HTTP /healthz and /readyz.
+
+Iterations to green (root causes, for traceability)
+--------------------------------------------------
+1. 42439734956 "Log in to GHCR" failed instantly — docker/login-action ran
+   before the dind service had written certs/started; also TLS client-cert
+   path (/certs/client) does not exist for VM jobs.
+2. 42439955741 "Wait for the dind daemon" timed out — service hostname
+   `docker` only resolves for jobs running INSIDE containers; VM jobs must
+   use the published localhost port (same pattern as ci.yml's postgres).
+3. 42440143296 same hostname fix not yet applied (TLS disabled but still
+   tcp://docker:2375).
+4. 42440358011 PASS with DOCKER_HOST=tcp://127.0.0.1:2375, DOCKER_TLS_CERTDIR
+   disabled on the service, ports 2375:2375 published, daemon-readiness wait.
+
+Related deliverables in cc8a70d..ba2a3f0
+---------------------------------------
+- Dockerfile.api multi-stage builder -> distroless (this image)
+- compose.yaml --profile test (PostGIS + Redis only, no API)
+- /healthz liveness + /readyz readiness endpoints (DB/Redis ping)
+- infra/nginx.reference.conf (TLS 1.3, HSTS, rate-limit zones)
