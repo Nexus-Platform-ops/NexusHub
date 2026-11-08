@@ -38,12 +38,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Wait for the dind daemon
+        run: |
+          # The service container writes the TLS CA and client certs only
+          # once its entrypoint has run; any docker command before that
+          # fails instantly with x509 errors.
+          for i in $(seq 1 30); do
+            if docker info >/dev/null 2>&1; then
+              echo "dind ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "dind never became ready"
+          exit 1
+
       - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: Build API image
         id: build
