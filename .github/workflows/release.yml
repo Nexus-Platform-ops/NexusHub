@@ -23,16 +23,20 @@ jobs:
     # instead of the host socket, so builds behave identically everywhere.
     # The daemon runs without TLS — the socket lives only on the ephemeral
     # runner's job network, and the /certs client-cert bind mount does not
-    # exist for jobs that do not run inside a container.
+    # exist for jobs that do not run inside a container. VM jobs reach
+    # service containers through localhost port mappings (same as the CI
+    # workflow's postgres service), not through the service hostname.
     runs-on: ubuntu-latest
     services:
       docker:
         image: docker:27-dind
         options: --privileged
+        ports:
+          - "2375:2375"
         env:
           DOCKER_TLS_CERTDIR: ""
     env:
-      DOCKER_HOST: tcp://docker:2375
+      DOCKER_HOST: tcp://127.0.0.1:2375
       DOCKER_TLS_VERIFY: ""
       DOCKER_CERT_PATH: ""
     outputs:
