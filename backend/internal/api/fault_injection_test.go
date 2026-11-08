@@ -31,7 +31,10 @@ func TestFaultRedisDown(t *testing.T) {
 	// A Redis client pointing at a port nothing listens on.
 	dead := redis.NewClient(&redis.Options{Addr: "127.0.0.1:6390", DialTimeout: 300 * time.Millisecond})
 	fs := &store.Store{Social: testStore.Social, Dating: testStore.Dating, RDB: dead}
-	srv := New(fs, testJWT, sCfgWithLimit(100000))
+	srv, err := New(fs, testJWT, sCfgWithLimit(100000))
+	if err != nil {
+		t.Fatalf("server: %v", err)
+	}
 	h := srv.Routes()
 
 	// Health names the failed dependency.
@@ -124,7 +127,10 @@ func TestFaultPostgresPoolClosed(t *testing.T) {
 	closedDating.Close()
 
 	fs := &store.Store{Social: closedSocial, Dating: closedDating, RDB: testStore.RDB}
-	srv := New(fs, testJWT, sCfgWithLimit(100000))
+	srv, err := New(fs, testJWT, sCfgWithLimit(100000))
+	if err != nil {
+		t.Fatalf("server: %v", err)
+	}
 	h := srv.Routes()
 
 	cases := []struct {

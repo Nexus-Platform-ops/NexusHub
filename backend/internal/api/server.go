@@ -14,8 +14,11 @@ import (
 
 	"github.com/getsentry/sentry-go"
 
+	"nexus/backend/internal/attest"
 	"nexus/backend/internal/auth"
 	"nexus/backend/internal/config"
+	"nexus/backend/internal/crypto"
+	"nexus/backend/internal/email"
 	"nexus/backend/internal/payments"
 	"nexus/backend/internal/ratelimit"
 	"nexus/backend/internal/sms"
@@ -30,10 +33,31 @@ type Server struct {
 	Cfg      config.Config
 	SMS      sms.Sender
 	Payments payments.Provider
+	Crypto   *crypto.Service
+	Attest   attest.Verifier
+	Email    email.Sender
 }
 
-// New builds a Server with its own limiter and provider clients.
-func New(st *store.Store, jwt *auth.JWT, cfg config.Config) *Server {
+// New builds a Server with its own limiter and provider clients. A
+// misconfigured crypto/attestation provider is a startup error: silently
+// degrading either would defeat their purpose.
+func New(st *store.Store, jwt *auth.JWT, cfg config.Config) (*Server, error) {
+	mk, err := crypto.NewMasterKey(cfg.CryptoProvider, crypto.KMSConfig{
+		LocalKey:              cfg.CryptoLocalKey,
+		AWSRegion:             cfg.AWSRegion,
+		AWSAccessKeyID:        cfg.AWSAccessKeyID,
+		AWSSecretAccessKey:    cfg.AWSSecretAccessKey,
+		AWSKeyID:              cfg.AWSKMSKeyID,
+		GCPKeyResource:        cfg.GCPKMSKeyResource,
+		GCPServiceAccountJSON: cfg.GCPServiceAccountJSON,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("crypto master key: %w", err)
+	}
+	svc, err := crypto.New(mk)
+	if err != nil {
+		return nil, fmt.Errorf("crypto service: %w", err)
+	}
 	return &Server{
 		Store: st,
 		JWT:   jwt,
@@ -52,7 +76,19 @@ func New(st *store.Store, jwt *auth.JWT, cfg config.Config) *Server {
 			APIKey:   cfg.PaymentAPIKey,
 			Timeout:  10 * time.Second,
 		}),
-	}
+		Crypto: svc,
+		Attest: attest.New(attest.Config{
+			Provider:       cfg.AttestationProvider,
+			PackageName:    cfg.GooglePlayPackageName,
+			ServiceAccount: cfg.GoogleServiceAccountJSON,
+		}),
+		Email: email.New(email.Config{
+			Provider: cfg.EmailProvider,
+			APIURL:   cfg.EmailAPIURL,
+			APIKey:   cfg.EmailAPIKey,
+			From:     cfg.EmailFrom,
+		}),
+	}, nil
 }
 
 func (s *Server) Routes() http.Handler {
@@ -92,6 +128,20 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /api/v1/blocks", authed(s.handleBlock))
 	mux.Handle("GET /api/v1/blocks", authed(s.handleListBlocks))
 	mux.Handle("DELETE /api/v1/blocks/{nodeID}", authed(s.handleUnblock))
+
+	// Device attestation (Phase D): single-use nonce challenge, then token
+	// verification (Play Integrity / App Attest). Records are stored for
+	// 30 days as the attestation evidence trail.
+	mux.Handle("POST /api/v1/auth/attest/nonce", authed(s.handleAttestNonce))
+	mux.Handle("POST /api/v1/auth/attest", authed(s.handleAttest))
+
+	// Data subject rights (Phase D): export, deletion with email/confirm
+	// token, and job status. Jobs live in Redis with a 30-day TTL (SLA).
+	mux.Handle("GET /api/v1/dsr/export", authed(s.handleDSRExportRequest))
+	mux.Handle("GET /api/v1/dsr/export/{jobID}", authed(s.handleDSRExportDownload))
+	mux.Handle("GET /api/v1/dsr/status", authed(s.handleDSRStatus))
+	mux.Handle("DELETE /api/v1/dsr/delete", authed(s.handleDSRDeleteRequest))
+	mux.Handle("POST /api/v1/dsr/delete/confirm", authed(s.handleDSRDeleteConfirm))
 
 	// Social feed (user_profiles schema only — dating data can never appear).
 	mux.Handle("POST /api/v1/posts", authed(s.handleCreatePost))

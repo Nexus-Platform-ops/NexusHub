@@ -43,7 +43,10 @@ func main() {
 	defer st.Close()
 
 	jwtSigner := auth.New(cfg.JWTSecret)
-	srv := api.New(st, jwtSigner, cfg)
+	srv, err := api.New(st, jwtSigner, cfg)
+	if err != nil {
+		log.Fatalf("server: %v", err)
+	}
 	httpServer := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           srv.Routes(),

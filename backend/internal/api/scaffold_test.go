@@ -406,7 +406,10 @@ func TestBirthDateGateTableDriven(t *testing.T) {
 // TestErrorPathsRateLimitTableDriven pins the 429 behavior of the IP limiter
 // on the public login surface with a tight limit.
 func TestErrorPathsRateLimitTableDriven(t *testing.T) {
-	s := New(testStore, testJWT, sCfgWithLimit(2))
+	s, err := New(testStore, testJWT, sCfgWithLimit(2))
+	if err != nil {
+		t.Fatalf("server: %v", err)
+	}
 	h := s.Routes()
 
 	steps := []struct {

@@ -44,12 +44,16 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	testJWT = auth.New("test-secret-that-is-long-enough-32b")
-	testServer = New(testStore, testJWT, config.Config{
+	testServer, err = New(testStore, testJWT, config.Config{
 		RateLimitPerMin:   100000,
 		WhisperTTLSeconds: 5,
 		OTPDebug:          true,
 		PaymentSigningKey: "test-payment-key",
 	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "integration setup failed:", err)
+		os.Exit(1)
+	}
 	os.Exit(m.Run())
 }
 

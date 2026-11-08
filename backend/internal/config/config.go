@@ -67,6 +67,31 @@ type Config struct {
 	SentryEnvironment      string
 	SentryRelease          string
 	SentryTracesSampleRate float64
+
+	// Envelope encryption at rest (Phase D). Every payload is encrypted
+	// with a fresh DEK and the DEK is wrapped by the configured master key:
+	// AWS KMS, GCP KMS, or (development only) a local key.
+	CryptoProvider string
+	CryptoLocalKey string // base64 32-byte key for provider "local"
+	AWSRegion      string
+	AWSAccessKeyID string
+	AWSSecretAccessKey string
+	AWSKMSKeyID    string
+	GCPKMSKeyResource  string
+	GCPServiceAccountJSON string
+
+	// Device attestation (Play Integrity / App Attest). Optional in
+	// development ("log" stub); staging/production require "playintegrity".
+	AttestationProvider   string
+	GooglePlayPackageName string
+	GoogleServiceAccountJSON string
+
+	// Transactional email for DSR flows. "log" is development-only;
+	// staging/production require "http" with an https endpoint.
+	EmailProvider string
+	EmailAPIURL   string
+	EmailAPIKey   string
+	EmailFrom     string
 }
 
 func getenv(key, def string) string {
@@ -74,6 +99,16 @@ func getenv(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// firstEnv returns the first non-empty environment value.
+func firstEnv(keys ...string) string {
+	for _, k := range keys {
+		if v := os.Getenv(k); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func atoiDefault(key string, def int) int {
@@ -134,6 +169,24 @@ func FromEnv() (Config, error) {
 		SentryEnvironment:      os.Getenv("SENTRY_ENVIRONMENT"),
 		SentryRelease:          os.Getenv("SENTRY_RELEASE"),
 		SentryTracesSampleRate: rateDefault("SENTRY_TRACES_SAMPLE_RATE", 0),
+
+		CryptoProvider: strings.ToLower(strings.TrimSpace(getenv("CRYPTO_PROVIDER", "local"))),
+		CryptoLocalKey: os.Getenv("CRYPTO_LOCAL_KEY"),
+		AWSRegion:      getenv("AWS_REGION", "ap-southeast-1"),
+		AWSAccessKeyID: os.Getenv("AWS_ACCESS_KEY_ID"),
+		AWSSecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
+		AWSKMSKeyID:    os.Getenv("KMS_KEY_ID"),
+		GCPKMSKeyResource: os.Getenv("GCP_KMS_KEY_RESOURCE"),
+		GCPServiceAccountJSON: firstEnv("GCP_SERVICE_ACCOUNT_JSON", "GOOGLE_SERVICE_ACCOUNT_JSON"),
+
+		AttestationProvider: strings.ToLower(strings.TrimSpace(getenv("ATTESTATION_PROVIDER", "log"))),
+		GooglePlayPackageName: os.Getenv("GOOGLE_PLAY_PACKAGE_NAME"),
+		GoogleServiceAccountJSON: os.Getenv("GOOGLE_SERVICE_ACCOUNT_JSON"),
+
+		EmailProvider: strings.ToLower(strings.TrimSpace(getenv("EMAIL_PROVIDER", "log"))),
+		EmailAPIURL:   os.Getenv("EMAIL_API_URL"),
+		EmailAPIKey:   os.Getenv("EMAIL_API_KEY"),
+		EmailFrom:     os.Getenv("EMAIL_FROM"),
 	}
 	if c.SentryEnvironment == "" {
 		c.SentryEnvironment = c.Env
@@ -260,6 +313,38 @@ func (c Config) Validate() error {
 		}
 		if !strings.HasPrefix(c.PaymentReturnURL, "https://") {
 			errs = append(errs, errors.New("PAYMENT_RETURN_URL must be an https:// URL"))
+		}
+	}
+	// Phase D: a local master key would put key material in an env var
+	// outside development, and unverifiable devices cannot be gated.
+	switch c.CryptoProvider {
+	case "awskms":
+		if c.AWSKMSKeyID == "" || c.AWSRegion == "" || c.AWSAccessKeyID == "" || c.AWSSecretAccessKey == "" {
+			errs = append(errs, errors.New("CRYPTO_PROVIDER=awskms requires KMS_KEY_ID, AWS_REGION, AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY"))
+		}
+	case "gcpkms":
+		if c.GCPKMSKeyResource == "" || c.GCPServiceAccountJSON == "" {
+			errs = append(errs, errors.New("CRYPTO_PROVIDER=gcpkms requires GCP_KMS_KEY_RESOURCE and a service account JSON"))
+		}
+	default:
+		errs = append(errs, errors.New("CRYPTO_PROVIDER must be awskms or gcpkms outside development"))
+	}
+	switch c.AttestationProvider {
+	case "playintegrity":
+		if c.GooglePlayPackageName == "" || c.GoogleServiceAccountJSON == "" {
+			errs = append(errs, errors.New("ATTESTATION_PROVIDER=playintegrity requires GOOGLE_PLAY_PACKAGE_NAME and GOOGLE_SERVICE_ACCOUNT_JSON"))
+		}
+	default:
+		errs = append(errs, errors.New("ATTESTATION_PROVIDER must be playintegrity outside development"))
+	}
+	if c.EmailProvider != "http" {
+		errs = append(errs, errors.New("EMAIL_PROVIDER must be http outside development"))
+	} else {
+		if !strings.HasPrefix(c.EmailAPIURL, "https://") {
+			errs = append(errs, errors.New("EMAIL_API_URL must be an https:// URL"))
+		}
+		if c.EmailAPIKey == "" || c.EmailFrom == "" {
+			errs = append(errs, errors.New("EMAIL_API_KEY and EMAIL_FROM are required when EMAIL_PROVIDER=http"))
 		}
 	}
 	return errors.Join(errs...)

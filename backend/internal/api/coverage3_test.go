@@ -49,7 +49,10 @@ func TestHandlersReport500OnClosedStore(t *testing.T) {
 		t.Fatalf("store: %v", err)
 	}
 	uid, token := makeUser(t, "Closed Store User")
-	srv := New(s, auth.New("test-secret-that-is-long-enough-32b"), sCfgWithLimit(100000))
+	srv, err := New(s, auth.New("test-secret-that-is-long-enough-32b"), sCfgWithLimit(100000))
+	if err != nil {
+		t.Fatalf("server: %v", err)
+	}
 	h := srv.Routes()
 	s.Close()
 

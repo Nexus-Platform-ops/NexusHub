@@ -449,11 +449,14 @@ func TestDevTopupGate(t *testing.T) {
 	}
 
 	// Production build (OTP_DEBUG=0) must return 404.
-	prod := New(testStore, testJWT, config.Config{
+	prod, err := New(testStore, testJWT, config.Config{
 		RateLimitPerMin:   100000,
 		WhisperTTLSeconds: 5,
 		PaymentSigningKey: "test-payment-key",
 	})
+	if err != nil {
+		t.Fatalf("server: %v", err)
+	}
 	req := httptestReq(t, "POST", "/api/v1/coins/topup/dev",
 		map[string]any{"amount": 100, "request_id": "req-30000009"})
 	req.Header.Set("Authorization", "Bearer "+token)

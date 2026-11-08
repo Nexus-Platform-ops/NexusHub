@@ -85,7 +85,10 @@ func TestIsDigits(t *testing.T) {
 }
 
 func TestRateLimitMiddleware(t *testing.T) {
-	s := New(testStore, testJWT, sCfgWithLimit(2))
+	s, err := New(testStore, testJWT, sCfgWithLimit(2))
+	if err != nil {
+		t.Fatalf("server: %v", err)
+	}
 	h := s.Routes()
 	statuses := []int{}
 	for i := 0; i < 3; i++ {

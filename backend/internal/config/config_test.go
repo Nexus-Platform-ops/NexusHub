@@ -116,6 +116,21 @@ func hardenedConfig() Config {
 		PaymentAPIURL:    "https://pay.example.com/v1/charges",
 		PaymentAPIKey:    strings.Repeat("d", 32),
 		PaymentReturnURL: "https://app.example.com/wallet",
+
+		CryptoProvider:     "awskms",
+		AWSRegion:          "ap-southeast-1",
+		AWSAccessKeyID:     strings.Repeat("e", 16),
+		AWSSecretAccessKey: strings.Repeat("f", 32),
+		AWSKMSKeyID:        "arn:aws:kms:ap-southeast-1:123456789012:key/00000000-0000-0000-0000-000000000000",
+
+		AttestationProvider:      "playintegrity",
+		GooglePlayPackageName:    "mm.nexushub.nexus_app",
+		GoogleServiceAccountJSON: `{"type":"service_account","project_id":"nexus","private_key":"` + strings.Repeat("g", 32) + `","client_email":"nexus@example.iam.gserviceaccount.com","token_uri":"https://oauth2.googleapis.com/token"}`,
+
+		EmailProvider: "http",
+		EmailAPIURL:   "https://mail.example.com/v1/send",
+		EmailAPIKey:   strings.Repeat("h", 32),
+		EmailFrom:     "Nexus <no-reply@example.com>",
 	}
 }
 
@@ -161,6 +176,17 @@ func TestValidateProductionRejectsUnsafeValues(t *testing.T) {
 		{"http payment url", func(c *Config) { c.PaymentAPIURL = "http://pay.example.com/charges" }, []string{"PAYMENT_API_URL"}},
 		{"missing payment key", func(c *Config) { c.PaymentAPIKey = "" }, []string{"PAYMENT_API_KEY"}},
 		{"http return url", func(c *Config) { c.PaymentReturnURL = "http://app.example.com/wallet" }, []string{"PAYMENT_RETURN_URL"}},
+		{"local crypto provider", func(c *Config) { c.CryptoProvider = "local" }, []string{"CRYPTO_PROVIDER"}},
+		{"missing kms key", func(c *Config) { c.AWSKMSKeyID = "" }, []string{"KMS_KEY_ID"}},
+		{"gcp kms without key resource", func(c *Config) {
+			c.CryptoProvider = "gcpkms"
+			c.GCPKMSKeyResource = ""
+		}, []string{"GCP_KMS_KEY_RESOURCE"}},
+		{"log attestation provider", func(c *Config) { c.AttestationProvider = "log" }, []string{"ATTESTATION_PROVIDER"}},
+		{"play integrity without package", func(c *Config) { c.GooglePlayPackageName = "" }, []string{"GOOGLE_PLAY_PACKAGE_NAME"}},
+		{"play integrity without sa", func(c *Config) { c.GoogleServiceAccountJSON = "" }, []string{"GOOGLE_SERVICE_ACCOUNT_JSON"}},
+		{"log email provider", func(c *Config) { c.EmailProvider = "log" }, []string{"EMAIL_PROVIDER"}},
+		{"http email without url", func(c *Config) { c.EmailAPIURL = "" }, []string{"EMAIL_API_URL"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
