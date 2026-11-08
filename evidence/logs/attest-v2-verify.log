@@ -1,0 +1,45 @@
+Attestation v2 verify log — 2026-11-07 (commit 03b02c0)
+=====================================================
+
+LOCAL (Windows, disposable DBs nexus_ci_d; local nexus/nexus_test untouched)
+- go build ./... && go vet (attest, api, config) ......... OK
+- go test ./... -count=1 (full backend suite) ............ OK
+- go test ./internal/... -coverpkg=./internal/... (CI method)
+    total coverage: 81.6% (gate: >=80%) .................. OK
+- New tests: TestAttestNonceRateLimit (6th nonce -> 429),
+  TestAttestVerifyRoute (expired->401, mismatch->401 consumes,
+  valid platform_token -> attested:true),
+  TestDiscoveryAttestationGate (log provider no-op; real provider
+  radar/swipe -> 403 without record, 200 with record),
+  DeviceCheck: TestDeviceCheckVerifyOK / InvalidToken / UpstreamError /
+  Misconfig + TestProviderNames + config Validate/IsProduction tests
+- flutter analyze (mobile) ............................... No issues found
+- Race detector: NOT run locally (no gcc on PATH); CI backend job runs -race
+- Live vendor verification (Google/Apple): NOT run — needs real
+  credentials (BLOCKED per project rule: no vendor dashboard access)
+
+CI
+- run 42453525788 (CI, push 03b02c0):
+    backend: success (unit, -race, coverage 81.0% >= 80, docker build,
+             compose validation)
+    frontend: failure = PRE-EXISTING baseline (flutter:3.47.9 image not
+             found); unaffected by this change, repin decision pending
+- run 42451831673 (CI, push 4aa1914): backend success, same frontend baseline
+
+DEVIATIONS / DECISIONS
+1. Spec item 5 "App Attest: Apple DeviceCheck verify (server-side)":
+   implemented as the Apple DeviceCheck token validation endpoint
+   (api.devicecheck.apple.com/v1/validate_device_token, ES256 JWT client
+   auth, hand-rolled, no new deps). Full App Attest DCN (CBOR + Apple root
+   CA) remains a documented 501 stub; provider name: "devicecheck".
+2. Paths kept at /api/v1/auth/attest{,/nonce,/verify} (repo convention);
+   /verify added as canonical route, bare /attest kept for older clients.
+3. Replay/expired nonce now answers 401 (spec) instead of 400; response
+   gains attested:true and nonce response gains expires_at. Client body
+   field platform_token accepted (token kept as legacy alias); server-side
+   GetDel binding retained, optional nonce cross-check added.
+4. Discovery hard gate applies to GET /api/v1/radar and
+   POST /api/v1/dating/swipe; skipped when provider is unset/log so local
+   dev and CI stay green. Nonce rate limit: 5/hour/user (device identity
+   is only known after verification, so the limit keys on the
+   authenticated principal).
