@@ -1,0 +1,30 @@
+Phase C — Android release build evidence (CI runner)
+=====================================================
+
+Run    : 42442448885 (workflow Release, push)
+SHA    : 63ab22c (ci(release): drop setup-android)
+Job    : android (ubuntu-latest, flutter 3.47.9, Java 17)
+Result : SUCCESS — analyze clean, bundleRelease + assembleRelease PASS
+
+Artifacts (uploaded as `android-release`, zip digest 77c707c6...33bec):
+  app-release.apk  58.5MB  sha256 75c1267a76da171d7198c6610c73378262043d2610c5e4d294a95f914cd20dd2
+  app-release.aab  56.0MB  sha256 fcab8bca360d43e11b25e6c2034fee91a9defe8ce92c2e2bd967f31803c16857
+
+Signing: HAS_KEYSTORE=false → debug-key fallback path exercised on CI
+(release build signed with debug keys; keystore secrets not yet configured).
+
+Iteration root causes:
+1. Run 42442143419 android FAIL — `android-actions/setup-android@v3` ran
+   sdkmanager against cmdline-tools 16.0 and failed on "Failed to find
+   package 'tools'" (that package no longer exists in the SDK repo).
+   Fix: dropped the action entirely; ubuntu-latest ships the Android SDK.
+2. Local first build FAIL — R8 missing-class errors on
+   com.google.android.play.core.split* (Flutter deferred-components refs).
+   Fix: added the AGP-generated -dontwarn list to proguard-rules.pro.
+
+Local verification (Windows, flutter 3.47.7, debug-key fallback):
+  flutter analyze: no issues
+  flutter test: 27/27 passed
+  app-release.apk  55.7MB  sha256 450d745d9cdf1e17f3eed849f00d57dbccf80251daf0bfd1d0c6c1693fa91c70
+  app-release.aab  53.3MB  sha256 6bdabe7455cfcbdaff3f7fe50bd63ec3fc82ed6be0c5084c3b843d32f6d24895
+(full local build output: flutter-build-android-local.log)

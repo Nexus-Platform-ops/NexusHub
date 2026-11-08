@@ -1,0 +1,29 @@
+Phase C — iOS archive evidence (CI runner)
+==========================================
+
+Status: BLOCKED — macOS job cancelled by GitHub before runner pickup.
+
+Observed on 2026-11-08:
+  Run 42442143419 (SHA e38f357): ios job cancelled ~1s after start
+    (run also had an unrelated android failure, since fixed).
+  Run 42442448885 (SHA 63ab22c): images + android SUCCESS; ios job
+    cancelled 1s after start (runner_name empty — never assigned a runner).
+  Rerun of 42442448885 (attempt 2): ios cancelled again within 3s.
+
+Linux jobs keep succeeding on the same account, so this is specific to
+the macOS runner pool: consistent with an account-level Actions macOS
+restriction (plan/quota) or an external cancellation. The cancel actor
+is not exposed via the REST API, so the trigger could not be confirmed
+from here. If the account has an Actions spending/minutes limit, check
+Settings > Billing and plans; macOS minutes consume 10x Linux minutes
+on private repositories.
+
+Not yet validated on any macOS runner:
+  - pod install against the new ios/Podfile (Podfile.lock generation)
+  - flutter build ios --release --no-codesign (unsigned archive default)
+  - signed IPA path (gated on IOS_P12_BASE64 / IOS_PROVISION_PROFILE_BASE64
+    / IOS_EXPORT_OPTIONS_BASE64 secrets, none configured yet)
+
+Local Windows machine cannot run CocoaPods/Xcode, so no local iOS
+verification exists. Next step once macOS runners execute: watch the
+job, capture artifact SHA256 + ios-podfile-lock artifact into this log.
