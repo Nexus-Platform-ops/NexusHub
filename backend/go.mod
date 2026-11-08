@@ -2,6 +2,8 @@ module nexus/backend
 
 go 1.23.0
 
+toolchain go1.27.1
+
 require (
 	github.com/getsentry/sentry-go v0.40.0
 	github.com/golang-jwt/jwt/v5 v5.2.1
