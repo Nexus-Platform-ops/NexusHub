@@ -185,6 +185,15 @@ func TestValidateProductionRejectsUnsafeValues(t *testing.T) {
 		{"log attestation provider", func(c *Config) { c.AttestationProvider = "log" }, []string{"ATTESTATION_PROVIDER"}},
 		{"play integrity without package", func(c *Config) { c.GooglePlayPackageName = "" }, []string{"GOOGLE_PLAY_PACKAGE_NAME"}},
 		{"play integrity without sa", func(c *Config) { c.GoogleServiceAccountJSON = "" }, []string{"GOOGLE_SERVICE_ACCOUNT_JSON"}},
+		{"app attest not implemented", func(c *Config) { c.AttestationProvider = "appattest" }, []string{"ATTESTATION_PROVIDER"}},
+		{"devicecheck without team id", func(c *Config) {
+			c.AttestationProvider = "devicecheck"
+			c.AppleTeamID = ""
+		}, []string{"APPLE_TEAM_ID"}},
+		{"devicecheck without p8", func(c *Config) {
+			c.AttestationProvider = "devicecheck"
+			c.AppleP8 = ""
+		}, []string{"APPLE_P8"}},
 		{"log email provider", func(c *Config) { c.EmailProvider = "log" }, []string{"EMAIL_PROVIDER"}},
 		{"http email without url", func(c *Config) { c.EmailAPIURL = "" }, []string{"EMAIL_API_URL"}},
 	}
@@ -214,6 +223,29 @@ func TestValidateAcceptsHardenedConfig(t *testing.T) {
 	c.Env = EnvStaging
 	if err := c.Validate(); err != nil {
 		t.Fatalf("staging config rejected: %v", err)
+	}
+}
+
+func TestValidateAcceptsDeviceCheck(t *testing.T) {
+	c := hardenedConfig()
+	c.AttestationProvider = "devicecheck"
+	c.AppleTeamID = "TEAM1"
+	c.AppleKeyID = "KEY1"
+	c.AppleBundleID = "mm.nexushub.nexusApp"
+	c.AppleP8 = "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
+	if err := c.Validate(); err != nil {
+		t.Fatalf("devicecheck config rejected: %v", err)
+	}
+}
+
+func TestIsProduction(t *testing.T) {
+	if (Config{Env: EnvProduction}).IsProduction() != true {
+		t.Fatal("production env must report production")
+	}
+	for _, env := range []string{EnvDevelopment, EnvStaging, ""} {
+		if (Config{Env: env}).IsProduction() {
+			t.Fatalf("env %q must not report production", env)
+		}
 	}
 }
 

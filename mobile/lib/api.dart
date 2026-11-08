@@ -153,6 +153,14 @@ class NexusApi {
       _send('POST', '/api/v1/auth/refresh',
           body: {'refresh_token': refreshToken}, auth: false);
 
+  // ---- device attestation (Play Integrity / DeviceCheck) ----
+  Future<Map<String, dynamic>> attestNonce() =>
+      _send('POST', '/api/v1/auth/attest/nonce');
+  Future<Map<String, dynamic>> attestVerify(
+          {required String nonce, required String platformToken}) =>
+      _send('POST', '/api/v1/auth/attest/verify',
+          body: {'nonce': nonce, 'platform_token': platformToken});
+
   // ---- profiles ----
   Future<Map<String, dynamic>> me() => _send('GET', '/api/v1/me');
   Future<Map<String, dynamic>> getProfile() => _send('GET', '/api/v1/profile');

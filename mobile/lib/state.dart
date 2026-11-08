@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'api.dart';
+import 'api/attest.dart';
 
 /// Base URL override for tests and device builds.
 const String kDefaultApiBaseUrl = String.fromEnvironment(
@@ -61,6 +62,9 @@ class AuthController extends ChangeNotifier {
       userId = ((res['user'] as Map<String, dynamic>)['id'] as num).toInt();
       verified = true;
       devCode = null;
+      // Attest the device in the background; the server gates dating
+      // discovery on a fresh attestation record. Non-blocking by design.
+      attestInBackground(_api);
       return true;
     } on ApiError catch (e) {
       error = e.message;
@@ -84,6 +88,7 @@ class AuthController extends ChangeNotifier {
     // coinsProvider watches authProvider, so notifyListeners() alone
     // refreshes it — invalidating explicitly here would create a cycle.
     notifyListeners();
+    attestInBackground(_api);
   }
 
   void logout() {

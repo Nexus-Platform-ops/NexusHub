@@ -50,6 +50,24 @@ func TestNewDispatch(t *testing.T) {
 	}
 }
 
+func TestProviderNames(t *testing.T) {
+	cases := []struct {
+		cfg  Config
+		want string
+	}{
+		{Config{Provider: Log}, Log},
+		{Config{Provider: "unknown"}, Log},
+		{Config{Provider: AppAttest}, AppAttest},
+		{Config{Provider: PlayIntegrity, ServiceAccount: "{not json}"}, PlayIntegrity},
+		{Config{Provider: DeviceCheck, AppleP8: "bad"}, DeviceCheck},
+	}
+	for _, tc := range cases {
+		if got := New(tc.cfg).Provider(); got != tc.want {
+			t.Fatalf("New(%+v).Provider() = %q, want %q", tc.cfg, got, tc.want)
+		}
+	}
+}
+
 // TestPlayIntegrityVerify drives the full Google path against httptest:
 // SA JWT token exchange, then the decodeIntegrityToken verdict check.
 func TestPlayIntegrityVerify(t *testing.T) {

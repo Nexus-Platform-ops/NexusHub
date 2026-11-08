@@ -32,6 +32,7 @@ type Server struct {
 	Store    *store.Store
 	JWT      *auth.JWT
 	RL       *ratelimit.Limiter
+	AttestRL *ratelimit.Limiter // nonce issues: 5 per hour per device (user)
 	Cfg      config.Config
 	SMS      sms.Sender
 	Payments payments.Provider
@@ -62,10 +63,11 @@ func New(st *store.Store, jwt *auth.JWT, cfg config.Config) (*Server, error) {
 		return nil, fmt.Errorf("crypto service: %w", err)
 	}
 	return &Server{
-		Store: st,
-		JWT:   jwt,
-		RL:    ratelimit.New(cfg.RateLimitPerMin, time.Minute),
-		Cfg:   cfg,
+		Store:    st,
+		JWT:      jwt,
+		RL:       ratelimit.New(cfg.RateLimitPerMin, time.Minute),
+		AttestRL: ratelimit.New(attestNoncePerHour, time.Hour),
+		Cfg:      cfg,
 		SMS: sms.New(sms.Config{
 			Provider: cfg.SMSProvider,
 			APIURL:   cfg.SMSAPIURL,
@@ -84,6 +86,10 @@ func New(st *store.Store, jwt *auth.JWT, cfg config.Config) (*Server, error) {
 			Provider:       cfg.AttestationProvider,
 			PackageName:    cfg.GooglePlayPackageName,
 			ServiceAccount: cfg.GoogleServiceAccountJSON,
+			AppleTeamID:    cfg.AppleTeamID,
+			AppleKeyID:     cfg.AppleKeyID,
+			AppleBundleID:  cfg.AppleBundleID,
+			AppleP8:        cfg.AppleP8,
 		}),
 		Email: email.New(email.Config{
 			Provider: cfg.EmailProvider,
@@ -133,11 +139,13 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /api/v1/blocks", authed(s.handleListBlocks))
 	mux.Handle("DELETE /api/v1/blocks/{nodeID}", authed(s.handleUnblock))
 
-	// Device attestation (Phase D): single-use nonce challenge, then token
-	// verification (Play Integrity / App Attest). Records are stored for
-	// 30 days as the attestation evidence trail.
+	// Device attestation: single-use nonce challenge (5/hour/device), then
+	// token verification (Play Integrity / DeviceCheck). Records live 30
+	// days as the evidence trail. "/verify" is the canonical client path;
+	// the bare "/attest" route stays for older clients.
 	mux.Handle("POST /api/v1/auth/attest/nonce", authed(s.handleAttestNonce))
 	mux.Handle("POST /api/v1/auth/attest", authed(s.handleAttest))
+	mux.Handle("POST /api/v1/auth/attest/verify", authed(s.handleAttest))
 
 	// Data subject rights (Phase D): export, deletion with email/confirm
 	// token, and job status. Jobs live in Redis with a 30-day TTL (SLA).
@@ -158,8 +166,11 @@ func (s *Server) Routes() http.Handler {
 	// Dating (isolated dating schema + anonymous radar + whisper TTL).
 	mux.Handle("GET /api/v1/dating/profile", authed(s.handleGetDatingProfile))
 	mux.Handle("PUT /api/v1/dating/profile", authed(s.handlePutDatingProfile))
-	mux.Handle("GET /api/v1/radar", authed(s.handleRadar))
-	mux.Handle("POST /api/v1/dating/swipe", authed(s.handleSwipe))
+	// Discovery is hard-gated on a fresh device attestation outside the
+	// development "log" provider (safety gate: unattested devices never
+	// appear in, nor consume, dating discovery).
+	mux.Handle("GET /api/v1/radar", authed(s.attested(s.handleRadar)))
+	mux.Handle("POST /api/v1/dating/swipe", authed(s.attested(s.handleSwipe)))
 	mux.Handle("POST /api/v1/whisper", authed(s.handleWhisperSend))
 	mux.Handle("GET /api/v1/whisper/{id}", authed(s.handleWhisperRead))
 

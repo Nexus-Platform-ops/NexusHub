@@ -23,7 +23,8 @@ import (
 const (
 	Log           = "log"           // development stub
 	PlayIntegrity = "playintegrity" // Google Play Integrity API
-	AppAttest     = "appattest"     // Apple App Attest (planned)
+	DeviceCheck   = "devicecheck"   // Apple DeviceCheck token validation
+	AppAttest     = "appattest"     // Apple App Attest DCN (planned)
 )
 
 // Result is a successfully verified attestation.
@@ -58,7 +59,14 @@ type Config struct {
 	ServiceAccount string // Google service account JSON (Play Integrity)
 	Timeout        time.Duration
 	Client         *http.Client // tests inject an httptest client
-	APIBase        string       // tests only; default https://playintegrity.googleapis.com
+	APIBase        string       // tests only; default Google/Apple endpoint
+
+	// Apple DeviceCheck: team + key id, iOS bundle id and the .p8 private
+	// key (PEM PKCS#8, ES256) used to sign the client JWT.
+	AppleTeamID   string
+	AppleKeyID    string
+	AppleBundleID string
+	AppleP8       string
 }
 
 // New builds the configured verifier; unknown providers fall back to the
@@ -67,6 +75,8 @@ func New(c Config) Verifier {
 	switch strings.ToLower(strings.TrimSpace(c.Provider)) {
 	case PlayIntegrity:
 		return newPlayIntegrity(c)
+	case DeviceCheck:
+		return newDeviceCheck(c)
 	case AppAttest:
 		return appAttestVerifier{}
 	default:
@@ -113,7 +123,7 @@ func newPlayIntegrity(c Config) Verifier {
 	if err != nil {
 		// Misconfigured credentials must be loud at startup-adjacent time:
 		// every verification fails instead of silently passing.
-		return brokenVerifier{err: fmt.Errorf("play integrity auth: %w", err)}
+		return brokenVerifier{provider: PlayIntegrity, err: fmt.Errorf("play integrity auth: %w", err)}
 	}
 	return &playIntegrityVerifier{
 		packageName: c.PackageName,
@@ -124,9 +134,12 @@ func newPlayIntegrity(c Config) Verifier {
 	}
 }
 
-type brokenVerifier struct{ err error }
+type brokenVerifier struct {
+	provider string
+	err      error
+}
 
-func (b brokenVerifier) Provider() string { return PlayIntegrity }
+func (b brokenVerifier) Provider() string { return b.provider }
 func (b brokenVerifier) Verify(context.Context, string, string) (*Result, error) {
 	return nil, b.err
 }
@@ -143,7 +156,7 @@ type integrityVerdict struct {
 		CertificateSHA256     []string `json:"certificateSha256Digest"`
 	} `json:"appIntegrity"`
 	DeviceIntegrity struct {
-		DeviceRecognitionVerdict  []string `json:"deviceRecognitionVerdict"`
+		DeviceRecognitionVerdict []string `json:"deviceRecognitionVerdict"`
 	} `json:"deviceIntegrity"`
 	Error struct {
 		Code    int    `json:"code"`

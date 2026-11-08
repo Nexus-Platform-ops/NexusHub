@@ -71,20 +71,25 @@ type Config struct {
 	// Envelope encryption at rest (Phase D). Every payload is encrypted
 	// with a fresh DEK and the DEK is wrapped by the configured master key:
 	// AWS KMS, GCP KMS, or (development only) a local key.
-	CryptoProvider string
-	CryptoLocalKey string // base64 32-byte key for provider "local"
-	AWSRegion      string
-	AWSAccessKeyID string
-	AWSSecretAccessKey string
-	AWSKMSKeyID    string
-	GCPKMSKeyResource  string
+	CryptoProvider        string
+	CryptoLocalKey        string // base64 32-byte key for provider "local"
+	AWSRegion             string
+	AWSAccessKeyID        string
+	AWSSecretAccessKey    string
+	AWSKMSKeyID           string
+	GCPKMSKeyResource     string
 	GCPServiceAccountJSON string
 
-	// Device attestation (Play Integrity / App Attest). Optional in
-	// development ("log" stub); staging/production require "playintegrity".
-	AttestationProvider   string
-	GooglePlayPackageName string
+	// Device attestation (Play Integrity / DeviceCheck). Optional in
+	// development ("log" stub); staging/production require "playintegrity"
+	// (Android) or "devicecheck" (iOS).
+	AttestationProvider      string
+	GooglePlayPackageName    string
 	GoogleServiceAccountJSON string
+	AppleTeamID              string
+	AppleKeyID               string
+	AppleBundleID            string
+	AppleP8                  string // PEM PKCS#8 ES256 private key (.p8)
 
 	// Transactional email for DSR flows. "log" is development-only;
 	// staging/production require "http" with an https endpoint.
@@ -176,18 +181,22 @@ func FromEnv() (Config, error) {
 		SentryRelease:          os.Getenv("SENTRY_RELEASE"),
 		SentryTracesSampleRate: rateDefault("SENTRY_TRACES_SAMPLE_RATE", 0),
 
-		CryptoProvider: strings.ToLower(strings.TrimSpace(getenv("CRYPTO_PROVIDER", "local"))),
-		CryptoLocalKey: os.Getenv("CRYPTO_LOCAL_KEY"),
-		AWSRegion:      getenv("AWS_REGION", "ap-southeast-1"),
-		AWSAccessKeyID: os.Getenv("AWS_ACCESS_KEY_ID"),
-		AWSSecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
-		AWSKMSKeyID:    os.Getenv("KMS_KEY_ID"),
-		GCPKMSKeyResource: os.Getenv("GCP_KMS_KEY_RESOURCE"),
+		CryptoProvider:        strings.ToLower(strings.TrimSpace(getenv("CRYPTO_PROVIDER", "local"))),
+		CryptoLocalKey:        os.Getenv("CRYPTO_LOCAL_KEY"),
+		AWSRegion:             getenv("AWS_REGION", "ap-southeast-1"),
+		AWSAccessKeyID:        os.Getenv("AWS_ACCESS_KEY_ID"),
+		AWSSecretAccessKey:    os.Getenv("AWS_SECRET_ACCESS_KEY"),
+		AWSKMSKeyID:           os.Getenv("KMS_KEY_ID"),
+		GCPKMSKeyResource:     os.Getenv("GCP_KMS_KEY_RESOURCE"),
 		GCPServiceAccountJSON: firstEnv("GCP_SERVICE_ACCOUNT_JSON", "GOOGLE_SERVICE_ACCOUNT_JSON"),
 
-		AttestationProvider: strings.ToLower(strings.TrimSpace(getenv("ATTESTATION_PROVIDER", "log"))),
-		GooglePlayPackageName: os.Getenv("GOOGLE_PLAY_PACKAGE_NAME"),
+		AttestationProvider:      strings.ToLower(strings.TrimSpace(getenv("ATTESTATION_PROVIDER", "log"))),
+		GooglePlayPackageName:    os.Getenv("GOOGLE_PLAY_PACKAGE_NAME"),
 		GoogleServiceAccountJSON: os.Getenv("GOOGLE_SERVICE_ACCOUNT_JSON"),
+		AppleTeamID:              os.Getenv("APPLE_TEAM_ID"),
+		AppleKeyID:               os.Getenv("APPLE_KEY_ID"),
+		AppleBundleID:            os.Getenv("APPLE_BUNDLE_ID"),
+		AppleP8:                  firstEnv("APPLE_P8", "APPLE_PRIVATE_KEY"),
 
 		EmailProvider: strings.ToLower(strings.TrimSpace(getenv("EMAIL_PROVIDER", "log"))),
 		EmailAPIURL:   os.Getenv("EMAIL_API_URL"),
@@ -342,8 +351,12 @@ func (c Config) Validate() error {
 		if c.GooglePlayPackageName == "" || c.GoogleServiceAccountJSON == "" {
 			errs = append(errs, errors.New("ATTESTATION_PROVIDER=playintegrity requires GOOGLE_PLAY_PACKAGE_NAME and GOOGLE_SERVICE_ACCOUNT_JSON"))
 		}
+	case "devicecheck":
+		if c.AppleTeamID == "" || c.AppleKeyID == "" || c.AppleBundleID == "" || c.AppleP8 == "" {
+			errs = append(errs, errors.New("ATTESTATION_PROVIDER=devicecheck requires APPLE_TEAM_ID, APPLE_KEY_ID, APPLE_BUNDLE_ID and APPLE_P8"))
+		}
 	default:
-		errs = append(errs, errors.New("ATTESTATION_PROVIDER must be playintegrity outside development"))
+		errs = append(errs, errors.New("ATTESTATION_PROVIDER must be playintegrity or devicecheck outside development"))
 	}
 	if c.EmailProvider != "http" {
 		errs = append(errs, errors.New("EMAIL_PROVIDER must be http outside development"))

@@ -69,6 +69,12 @@ kotlin {
     }
 }
 
+dependencies {
+    // Play Integrity: native side of the nexus/attest platform channel
+    // (server-side verdict verification lives in the Go API).
+    implementation("com.google.android.play:integrity:1.4.0")
+}
+
 flutter {
     source = "../.."
 }
