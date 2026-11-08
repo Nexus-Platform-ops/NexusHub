@@ -1,21 +1,23 @@
 # Build stage: compile the API and the one-shot migration runner.
-FROM golang:1.23-alpine AS build
+# Pinned to the same Go patch as go.mod's toolchain directive.
+FROM golang:1.27.1-bookworm AS build
 WORKDIR /src
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download
 COPY backend/ .
-RUN CGO_ENABLED=0 go build -trimpath -o /out/api ./cmd/api \
- && CGO_ENABLED=0 go build -trimpath -o /out/migrate ./cmd/migrate
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/api ./cmd/api \
+ && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/migrate ./cmd/migrate
 
-# Runtime stage: minimal image, non-root user. ca-certificates are required
-# for outbound HTTPS (Facebook / TikTok token exchange).
-FROM alpine:3.20
-RUN apk add --no-cache ca-certificates tzdata
+# Runtime stage: distroless static, non-root. No shell and no package manager,
+# so there is no in-image HEALTHCHECK binary — orchestrators probe /healthz
+# (liveness) and /readyz (readiness, pings Postgres + Redis) over HTTP.
+# CA certificates and tzdata are copied from the builder.
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=build /usr/share/zoneinfo /usr/share/zoneinfo
 COPY --from=build /out/api /usr/local/bin/api
 COPY --from=build /out/migrate /usr/local/bin/migrate
 COPY migrations /app/migrations
-USER 10001:10001
+USER nonroot:nonroot
 EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=3s --start-period=10s \
-  CMD wget -qO- http://127.0.0.1:8080/api/v1/health || exit 1
 ENTRYPOINT ["api"]

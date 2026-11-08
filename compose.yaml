@@ -1,0 +1,39 @@
+# Test-only profile: PostGIS + Redis, no API. Brings up just the dependencies
+# so DB-backed test suites can run without the sandbox needing to build the
+# API image:
+#
+#   docker compose --profile test up -d
+#   TEST_SOCIAL_URL=postgres://nexus_social:dev_social@127.0.0.1:5432/nexus?sslmode=disable \
+#   TEST_DATING_URL=postgres://nexus_dating:dev_dating@127.0.0.1:5432/nexus?sslmode=disable \
+#   TEST_REDIS_ADDR=127.0.0.1:6379 go test ./...   # from backend/
+#
+# NOTE: compose v2 prefers this file over docker-compose.yml when both exist;
+# the dev stack must be addressed explicitly (docker compose -f docker-compose.yml).
+services:
+  db:
+    profiles: ["test"]
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: nexus
+      POSTGRES_PASSWORD: nexusdev
+      POSTGRES_DB: nexus
+    ports:
+      - "5432:5432"
+    healthcheck:
+      # Host TCP keeps the check unhealthy while initdb's socket-only
+      # temporary server runs.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U nexus"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    profiles: ["test"]
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10

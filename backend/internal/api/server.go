@@ -59,6 +59,10 @@ func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /api/v1/health", s.handleHealth)
+	// Infra probes for orchestrators: liveness never touches dependencies,
+	// readiness pings them (same semantics as /api/v1/health).
+	mux.HandleFunc("GET /healthz", s.handleHealthz)
+	mux.HandleFunc("GET /readyz", s.handleReady)
 
 	pub := func(h http.HandlerFunc) http.Handler { return s.ipLimited(h) }
 	mux.Handle("POST /api/v1/auth/register", pub(s.handleRegister))
@@ -250,7 +254,7 @@ func logMiddleware(next http.Handler) http.Handler {
 				}
 				sw.captured = true
 			}
-			if sw.status >= 500 && !sw.captured && sw.hub != nil && r.URL.Path != "/api/v1/health" {
+			if sw.status >= 500 && !sw.captured && sw.hub != nil && !isHealthPath(r.URL.Path) {
 				sw.hub.CaptureMessage(fmt.Sprintf("%s %s -> %d", r.Method, r.URL.Path, sw.status))
 			}
 			log.Printf("%s %s -> %d (%s)", r.Method, r.URL.Path, sw.status, time.Since(start).Round(time.Millisecond))
@@ -297,6 +301,21 @@ func (w *statusWriter) captureError(what string, err error) {
 
 // handleHealth reports database and Redis readiness.
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	s.writeReadiness(w)
+}
+
+// handleHealthz is the liveness probe: the process is up and serving.
+func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleReady is the readiness probe: both Postgres pools and Redis answer
+// within healthTimeout.
+func (s *Server) handleReady(w http.ResponseWriter, _ *http.Request) {
+	s.writeReadiness(w)
+}
+
+func (s *Server) writeReadiness(w http.ResponseWriter) {
 	ctx, cancel := context.WithTimeout(context.Background(), healthTimeout)
 	defer cancel()
 	dbOK := s.Store.Social.Ping(ctx) == nil && s.Store.Dating.Ping(ctx) == nil
@@ -306,6 +325,16 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 		status = http.StatusServiceUnavailable
 	}
 	writeJSON(w, status, map[string]bool{"ok": dbOK && rdOK, "db": dbOK, "redis": rdOK})
+}
+
+// isHealthPath reports whether p is a health probe whose failures must not
+// page Sentry (a dependency outage is an infra signal, not an app error).
+func isHealthPath(p string) bool {
+	switch p {
+	case "/api/v1/health", "/healthz", "/readyz":
+		return true
+	}
+	return false
 }
 
 // pathInt64 parses a {id} path value, writing a 404 on failure.

@@ -30,7 +30,7 @@ cd mobile && flutter pub get && flutter run
 ## Quick start (Docker Compose)
 
 ```bash
-docker compose up --build
+docker compose -f docker-compose.yml up --build
 # API:  http://localhost:8080/api/v1/health
 # Web:  http://localhost:3000
 ```

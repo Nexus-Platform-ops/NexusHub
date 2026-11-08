@@ -1,0 +1,77 @@
+name: Release
+
+# Image builds run exclusively on CI runners: the local sandbox cannot build
+# container images (outbound apk/CDN access is blocked there), so the CI
+# runner builds, size-gates, and publishes to GHCR.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/oddsmyanamr-cyber/nexus-api
+
+jobs:
+  images:
+    # Docker-in-Docker: the job talks to a privileged dind daemon over TLS
+    # instead of the host socket, so builds behave identically everywhere.
+    runs-on: ubuntu-latest
+    services:
+      docker:
+        image: docker:27-dind
+        options: --privileged
+        env:
+          DOCKER_TLS_CERTDIR: /certs
+    env:
+      DOCKER_HOST: tcp://docker:2376
+      DOCKER_TLS_VERIFY: "1"
+      DOCKER_CERT_PATH: /certs/client
+    outputs:
+      tag: ${{ steps.build.outputs.tag }}
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build API image
+        id: build
+        run: |
+          TAG="${GITHUB_REF_NAME//\//-}-${GITHUB_SHA::12}"
+          docker build -f Dockerfile.api -t "$IMAGE:$TAG" .
+          docker images --format 'table {{.Repository}}\t{{.Tag}}\t{{.Size}}'
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Size gate (<100MB uncompressed)
+        run: |
+          BYTES=$(docker image inspect "$IMAGE:${{ steps.build.outputs.tag }}" --format '{{.Size}}')
+          HUMAN=$(numfmt --to=iec-i --suffix=B "$BYTES")
+          echo "uncompressed size: $HUMAN ($BYTES bytes)"
+          if [ "$BYTES" -ge 104857600 ]; then
+            echo "FAIL: image is $HUMAN, at or above the 100MB gate"
+            exit 1
+          fi
+
+      - name: Push to GHCR and record digest
+        id: push
+        run: |
+          docker push "$IMAGE:${{ steps.build.outputs.tag }}"
+          DIGEST=$(docker image inspect "$IMAGE:${{ steps.build.outputs.tag }}" \
+            --format '{{index .RepoDigests 0}}' | cut -d@ -f2)
+          {
+            echo "### nexus-api image"
+            echo "- tag: \`$IMAGE:${{ steps.build.outputs.tag }}\`"
+            echo "- digest: \`$DIGEST\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"

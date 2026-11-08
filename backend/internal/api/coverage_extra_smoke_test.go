@@ -55,6 +55,8 @@ func TestSmokeAllEndpointsAnonymous(t *testing.T) {
 		want         []int
 	}{
 		{"GET", "/api/v1/health", nil, []int{http.StatusOK}},
+		{"GET", "/healthz", nil, []int{http.StatusOK}},
+		{"GET", "/readyz", nil, []int{http.StatusOK}},
 		{"POST", "/api/v1/auth/register", map[string]any{"phone": "+95977700001", "display_name": "Smoke Anon"}, []int{http.StatusCreated}},
 		{"POST", "/api/v1/auth/register", rawBody(`{"phone":`), []int{http.StatusBadRequest}},
 		{"POST", "/api/v1/auth/verify", map[string]any{"phone": "+95977700001", "code": "000000"}, []int{http.StatusBadRequest}},
