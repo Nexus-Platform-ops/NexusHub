@@ -26,6 +26,17 @@
 		<string>$(FLUTTER_BUILD_NUMBER)</string>
 		<key>LSRequiresIPhoneOS</key>
 		<true/>
+		<key>NSAppTransportSecurity</key>
+		<dict>
+			<key>NSAllowsArbitraryLoads</key>
+			<false/>
+		</dict>
+		<key>NSCameraUsageDescription</key>
+		<string>Nexus needs camera access to take photos for posts and listings.</string>
+		<key>NSLocationWhenInUseUsageDescription</key>
+		<string>Nexus uses your location to show nearby people and listings on the radar.</string>
+		<key>NSMicrophoneUsageDescription</key>
+		<string>Nexus needs microphone access for voice messages and calls.</string>
 		<key>UIApplicationSceneManifest</key>
 		<dict>
 			<key>UIApplicationSupportsMultipleScenes</key>

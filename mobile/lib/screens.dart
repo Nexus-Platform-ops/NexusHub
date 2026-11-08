@@ -492,6 +492,7 @@ class _WhisperViewState extends ConsumerState<_WhisperView> {
           ),
           const SizedBox(width: 8),
           IconButton.filled(
+            key: const Key('whisper-send'),
             style: IconButton.styleFrom(backgroundColor: NexusColors.whisper),
             onPressed: nodes.isEmpty
                 ? null

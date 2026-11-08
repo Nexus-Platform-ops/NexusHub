@@ -1,0 +1,68 @@
+appId: mm.nexushub.nexus_app
+name: Signup to whisper wipe
+tags:
+  - e2e
+  - critical
+env:
+  PHONE: "+959770000042"
+  DISPLAY_NAME: "Maestro E2E"
+  # Fallback when the dev code is not shown in-app (OTP_DEBUG=0 backends):
+  # run with -e OTP=<code>.
+  OTP: ""
+---
+- launchApp:
+    clearState: true
+- assertVisible: "NexusHub"
+- tapOn:
+    id: "phone-field"
+- inputText: ${PHONE}
+- tapOn:
+    id: "name-field"
+- inputText: ${DISPLAY_NAME}
+- tapOn:
+    id: "send-button"
+- waitForVisible:
+    id: "otp-field"
+- copyTextFrom:
+    id: "dev-code"
+    optional: true
+- evalScript: ${output.otp = maestro.copiedText && maestro.copiedText.includes("Development code") ? maestro.copiedText.replace("Development code: ", "") : OTP}
+- tapOn:
+    id: "otp-field"
+- inputText: ${output.otp}
+- tapOn:
+    id: "verify-button"
+- waitForVisible: "Social"
+
+# Social: create a post, see it land in the feed, react to it.
+- tapOn:
+    hintText: "What's on your mind?"
+- inputText: "Maestro smoke post"
+- tapOn: "Post"
+- assertVisible: "Maestro smoke post"
+- tapOn: "Like"
+
+# Dating: clear the 18+ gate (picker default is 20 years ago, so OK = adult).
+- tapOn: "Dating"
+- tapOn:
+    text: "Confirm my date of birth"
+    optional: true
+- tapOn:
+    text: "OK"
+    optional: true
+- assertVisible: "Radar"
+
+# Whisper wipe: send one, watch the bubble self-destruct.
+- runFlow:
+    when:
+      visible: "Send self-destruct whisper…"
+    commands:
+      - tapOn:
+          hintText: "Send self-destruct whisper…"
+      - inputText: "secret ping"
+      - tapOn:
+          id: "whisper-send"
+      - assertVisible: "Self-destructs in 5s…"
+      - assertNotVisible:
+          text: "Self-destructs in 5s…"
+          timeout: 15000
