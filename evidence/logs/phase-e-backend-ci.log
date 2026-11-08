@@ -1,0 +1,35 @@
+Phase E backend CI evidence — Observability + DR + Soak
+========================================================
+Date: 2026-11-07/08 (UTC+6.5 local)
+
+Commits
+  e14c1a2  Add Phase E observability: OTel traces, Prometheus metrics,
+           alerting, DR/soak tooling
+  17e6cc7  Cover safety gauge poller and tracer edge paths (coverage fix)
+
+Local verification (disposable DB nexus_ci_d, roles nexus_social/nexus_dating)
+  go build ./...                                      PASS
+  go test ./... -count=1                              PASS (all packages)
+  coverage gate (CI-equivalent command):              81.0% >= 80% PASS
+  go vet (touched packages)                           PASS
+  DR drill local partial: evidence/dr-drill-result.json (failover skipped —
+    no standby infra; dump/restore proxy 1s/0s on dev-scale DB)
+
+CI run 1: 42449839604 @ e14c1a2
+  backend:  FAIL — coverage gate measured 79.9% (<80); all tests passed.
+           Fixed in 17e6cc7 with safety-gauge + tracer edge-path tests.
+  frontend: FAIL — PRE-EXISTING, unrelated to Phase E:
+           ghcr.io/cirruslabs/flutter:3.47.9: not found (documented since
+           Phase D; fix decision pending: repin Dockerfile.web or build the
+           web bundle via flutter-action + nginx COPY)
+
+CI run 2: 42450791394 @ 17e6cc7
+  backend:  PASS — Go build, tests, race detector, coverage gate
+            (backend job green), API Docker image, compose validation
+            (incl. new required GRAFANA_ADMIN_PASSWORD var in ci.yml),
+            Caddyfile validate.
+  frontend: FAIL — same pre-existing flutter:3.47.9 image-not-found.
+
+Soak: NOT EXECUTED (no k6/WS transport — see evidence/logs/soak-48h.log)
+DR:   failover steps NOT EXECUTED (no standby infra); script + partial
+      result committed (evidence/dr-drill-result.json, status=partial)
