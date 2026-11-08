@@ -1,0 +1,36 @@
+# Alertmanager scaffold: critical alerts page, warnings open tickets.
+# Routing targets (PagerDuty/Opsgenie webhooks, Slack) are deployment-specific
+# — fill the receiver configs per environment; do not commit real webhook URLs.
+global:
+  smtp_smarthost: "localhost:587"
+  smtp_from: "alertmanager@nexus.local"
+
+route:
+  receiver: default
+  group_by: ["alertname", "severity"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers:
+        - severity = "critical"
+      receiver: paging
+      continue: true
+
+receivers:
+  - name: default
+    # Replace with the team channel webhook in each environment.
+    webhook_configs:
+      - url: "http://localhost:5001/"
+
+  - name: paging
+    # PagerDuty/Opsgenie integration key goes here (via env var in compose).
+    pagerduty_configs: []
+    webhook_configs:
+      - url: "http://localhost:5001/"
+
+inhibit_rules:
+  # A critical alert suppresses warnings of the same alert family.
+  - source_matchers: ["severity = critical"]
+    target_matchers: ["severity = warning"]
+    equal: ["alertname"]

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -103,9 +104,28 @@ func (s *Server) handlePutBirthDate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// highSeverityReasons are the report categories paged on a 30-minute SLA.
+// The reports table stores a flat reason list (006_moderation.sql), so the
+// severity mapping lives here; keep it in sync with deploy/prometheus/alerts.yml.
+var highSeverityReasons = map[string]bool{
+	"underage": true,
+	"nudity":   true,
+}
+
+// reportSeverity maps a stored reason to its paging severity.
+func reportSeverity(reason string) string {
+	if highSeverityReasons[reason] {
+		return "high"
+	}
+	return "normal"
+}
+
 // handleCreateReport records an abuse report for moderation review.
 func (s *Server) handleCreateReport(w http.ResponseWriter, r *http.Request) {
 	uid, _ := userID(r)
+	var severity string
+	start := time.Now()
+	defer func() { s.Metrics.ObserveSafetyReport(severity, time.Since(start)) }()
 	var req struct {
 		TargetKind string `json:"target_kind"`
 		TargetID   string `json:"target_id"`
@@ -125,6 +145,7 @@ func (s *Server) handleCreateReport(w http.ResponseWriter, r *http.Request) {
 		errorJSON(w, http.StatusBadRequest, "reason is not a supported report category")
 		return
 	}
+	severity = reportSeverity(req.Reason)
 	req.TargetID = trimLimit(req.TargetID, 64)
 	if req.TargetID == "" {
 		errorJSON(w, http.StatusBadRequest, "target_id is required")
@@ -162,6 +183,49 @@ func (s *Server) handleCreateReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "status": status})
+}
+
+// highSeverityReasonList is the sorted SQL parameter form of
+// highSeverityReasons (deterministic query text).
+var highSeverityReasonList = func() []string {
+	reasons := make([]string, 0, len(highSeverityReasons))
+	for r := range highSeverityReasons {
+		reasons = append(reasons, r)
+	}
+	sort.Strings(reasons)
+	return reasons
+}()
+
+// RunSafetyGauge periodically refreshes the SafetyHighOpenSeconds gauge with
+// the age of the oldest still-open HIGH-severity report (the 30-minute SLA
+// signal paged by deploy/prometheus/alerts.yml). It runs until ctx is
+// cancelled; failures are logged and leave the last value in place.
+func (s *Server) RunSafetyGauge(ctx context.Context, interval time.Duration) {
+	tick := time.NewTicker(interval)
+	defer tick.Stop()
+	s.refreshSafetyHighOpen(ctx)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			s.refreshSafetyHighOpen(ctx)
+		}
+	}
+}
+
+func (s *Server) refreshSafetyHighOpen(ctx context.Context) {
+	var age float64
+	err := s.Store.Social.QueryRow(ctx,
+		`SELECT COALESCE(EXTRACT(EPOCH FROM now() - MIN(created_at)), 0)
+		 FROM social.reports
+		 WHERE status IN ('open','reviewing') AND reason = ANY($1)`,
+		highSeverityReasonList).Scan(&age)
+	if err != nil {
+		log.Printf("safety gauge refresh failed: %v", err)
+		return
+	}
+	s.Metrics.SafetyHighOpenSeconds.Set(age)
 }
 
 // handleBlock suppresses another account everywhere (radar, swipe, whisper)

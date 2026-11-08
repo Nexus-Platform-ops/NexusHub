@@ -9,7 +9,6 @@ package covergate
 
 import (
 	"bufio"
-	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -91,6 +90,6 @@ func TestCoverageGate(t *testing.T) {
 	pct := float64(covered) * 100 / float64(total)
 	t.Logf("total statement coverage: %.1f%% (%d/%d statements)", pct, covered, total)
 	if pct < CoverageGatePct {
-		t.Fatalf(fmt.Sprintf("coverage gate FAILED: %.1f%% < %.1f%% — add tests before merging", pct, CoverageGatePct))
+		t.Fatalf("coverage gate FAILED: %.1f%% < %.1f%% — add tests before merging", pct, CoverageGatePct)
 	}
 }

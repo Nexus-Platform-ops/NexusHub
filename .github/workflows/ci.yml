@@ -80,6 +80,7 @@ jobs:
             PAYMENT_API_URL=https://pay.example.com/charges PAYMENT_API_KEY=ci \
             PAYMENT_RETURN_URL=https://ci.example.com/wallet \
             NEXUS_PUBLIC_API_URL=https://ci.example.com \
+            GRAFANA_ADMIN_PASSWORD=ci \
             DOMAIN=ci.example.com ACME_EMAIL=ci@example.com \
             docker compose -f docker-compose.prod.yml config >/dev/null
           docker run --rm \

@@ -1,0 +1,26 @@
+{
+  "drill": "primary-az-failure-to-standby",
+  "started_at": "2026-11-08T05:05:30Z",
+  "finished_at": "2026-11-08T05:05:31Z",
+  "targets": {
+    "rpo_seconds": 900,
+    "rto_seconds": 3600
+  },
+  "failover": {
+    "status": "skipped",
+    "promote_probe": "skipped",
+    "promote_wall_seconds": null
+  },
+  "rpo": {
+    "standby_replay_lag_seconds": null,
+    "wal_delta_bytes": null,
+    "within_target": null
+  },
+  "rto": {
+    "pg_dump_seconds": 1,
+    "pg_restore_seconds": 0,
+    "within_target": true
+  },
+  "status": "partial",
+  "notes": ["PRIMARY_URL/STANDBY_URL not both set (or psql missing): failover steps skipped"]
+}

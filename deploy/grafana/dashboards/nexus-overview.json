@@ -1,0 +1,115 @@
+{
+  "uid": "nexus-overview",
+  "title": "Nexus Overview",
+  "tags": ["nexus", "phase-e"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {"from": "now-6h", "to": "now"},
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Request rate by route",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {
+          "expr": "sum by (route) (rate(nexus_http_request_duration_seconds_count[5m]))",
+          "legendFormat": "{{route}}"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []}
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "5xx error ratio (1% ceiling)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {
+          "expr": "sum(rate(nexus_http_request_duration_seconds_count{code=~\"5..\"}[5m])) / sum(rate(nexus_http_request_duration_seconds_count[5m]))",
+          "legendFormat": "5xx ratio"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "percentunit", "max": 0.05, "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "red", "value": 0.01}]}},
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Key-path p95 (s)",
+      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(nexus_feed_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "feed p95"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(nexus_radar_push_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "radar push p95"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(nexus_rank_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "rank p95"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(nexus_whisper_wipe_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "whisper wipe p95"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(nexus_safety_report_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "safety report p95"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "DB replication lag (s)",
+      "gridPos": {"h": 6, "w": 8, "x": 0, "y": 17},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "max(pg_replication_lag)", "instant": true}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "s", "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "red", "value": 5}]}},
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Redis memory usage",
+      "gridPos": {"h": 6, "w": 8, "x": 8, "y": 17},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "redis_memory_used_bytes / redis_memory_max_bytes", "instant": true}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "percentunit", "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "yellow", "value": 0.7}, {"color": "red", "value": 0.8}]}},
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Oldest open HIGH report (s, SLA 1800)",
+      "gridPos": {"h": 6, "w": 8, "x": 16, "y": 17},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "nexus_safety_high_open_seconds", "instant": true}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "s", "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "red", "value": 1800}]}},
+        "overrides": []
+      }
+    }
+  ]
+}

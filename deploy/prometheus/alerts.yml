@@ -1,0 +1,110 @@
+# Nexus paging alerts (Phase E). Consume with deploy/prometheus/prometheus.yml.
+#
+# Metric sources:
+#   nexus_*           — the API's own registry (internal/observability), scraped
+#                       from METRICS_ADDR (default :9090).
+#   pg_*              — postgres_exporter on the primary (replication lag).
+#   redis_*           — redis_exporter on the Redis instance.
+#
+# Severity vocabulary: critical = page immediately, warning = ticket/degrade.
+groups:
+  - name: nexus-slo
+    interval: 30s
+    rules:
+      # ---- Error budget: 99% availability over 30 days --------------------
+      # Fast burn: 2% of the monthly budget consumed within 1h/5m windows.
+      - alert: NexusErrorBudgetFastBurn
+        expr: |
+          (
+            sum(rate(nexus_http_request_duration_seconds_count{code=~"5.."}[1h]))
+              / sum(rate(nexus_http_request_duration_seconds_count[1h]))
+          > (14.4 * 0.001))
+          and
+          (
+            sum(rate(nexus_http_request_duration_seconds_count{code=~"5.."}[5m]))
+              / sum(rate(nexus_http_request_duration_seconds_count[5m]))
+          > (14.4 * 0.001))
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Nexus error budget fast burn (14.4x)"
+          description: "5xx ratio {{ $value | humanizePercentage }} over 1h/5m windows exceeds 14.4x the 0.1% error-budget rate; page now."
+      # Slow burn: 100% of the monthly budget consumed within 3d/1h windows.
+      - alert: NexusErrorBudgetSlowBurn
+        expr: |
+          (
+            sum(rate(nexus_http_request_duration_seconds_count{code=~"5.."}[3d]))
+              / sum(rate(nexus_http_request_duration_seconds_count[3d]))
+          > (6 * 0.001))
+          and
+          (
+            sum(rate(nexus_http_request_duration_seconds_count{code=~"5.."}[1h]))
+              / sum(rate(nexus_http_request_duration_seconds_count[1h]))
+          > (6 * 0.001))
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Nexus error budget slow burn (6x)"
+          description: "5xx ratio {{ $value | humanizePercentage }} over 3d/1h windows exceeds 6x the 0.1% error-budget rate."
+
+      # ---- Spec: error-rate > 1% ------------------------------------------
+      - alert: NexusErrorRateAbove1Percent
+        expr: |
+          sum(rate(nexus_http_request_duration_seconds_count{code=~"5.."}[5m]))
+            / sum(rate(nexus_http_request_duration_seconds_count[5m]))
+          > 0.01
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Nexus 5xx error rate above 1%"
+          description: "5xx ratio {{ $value | humanizePercentage }} averaged over 5m exceeds the 1% ceiling."
+
+  - name: nexus-dependencies
+    interval: 30s
+    rules:
+      # ---- Spec: DB replication lag > 5s ----------------------------------
+      # Requires postgres_exporter on the standby/primary pair; the exact
+      # metric name follows the exporter's collector config (pg_replication_lag
+      # or pg_stat_replication_pg_replication_lag_seconds).
+      - alert: NexusDBReplicationLagHigh
+        expr: |
+          max(pg_replication_lag{job=~".*nexus.*"}) > 5
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Nexus DB replication lag above 5s"
+          description: "Replication lag {{ $value }}s exceeds the 5s ceiling (RPO guard for DR: 15min target)."
+
+      # ---- Spec: Redis memory > 80% ---------------------------------------
+      - alert: NexusRedisMemoryHigh
+        expr: |
+          redis_memory_used_bytes{job=~".*nexus.*"}
+            / redis_memory_max_bytes{job=~".*nexus.*"}
+          > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Nexus Redis memory above 80%"
+          description: "Redis memory usage {{ $value | humanizePercentage }} of max; whisper/rate-limit/OTP state could start evicting."
+
+  - name: nexus-safety
+    interval: 30s
+    rules:
+      # ---- Spec: safety SLA breach (HIGH > 30min) --------------------------
+      # Backed by the nexus_safety_high_open_seconds gauge, refreshed every 30s
+      # by RunSafetyGauge. HIGH = underage/nudity reports (see
+      # internal/api/moderation.go — keep the mapping in sync).
+      - alert: NexusSafetyHighSLABreach
+        expr: |
+          nexus_safety_high_open_seconds > 1800
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HIGH-severity safety report open for over 30 minutes"
+          description: "Oldest open HIGH report age {{ $value }}s exceeds the 30-minute moderation SLA."

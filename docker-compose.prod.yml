@@ -104,6 +104,13 @@ services:
       SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
       SENTRY_RELEASE: ${SENTRY_RELEASE:-}
       SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0}
+      # Phase E observability: Prometheus metrics on the admin port (scraped
+      # by the prometheus service below); OTel traces via OTLP when a
+      # collector endpoint is configured.
+      METRICS_ADDR: ":9090"
+      OTEL_TRACES_EXPORTER: ${OTEL_TRACES_EXPORTER:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_INSECURE: ${OTEL_EXPORTER_OTLP_INSECURE:-}
     depends_on:
       db:
         condition: service_healthy
@@ -128,6 +135,73 @@ services:
     restart: unless-stopped
     depends_on:
       - api
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  # ---- Observability (Phase E). Internal-only: reach UIs via
+  # `docker compose port grafana 3000` / ssh tunnel, never publish them.
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=30d"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - promdata:/prometheus
+    depends_on:
+      - api
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+    volumes:
+      - ./deploy/prometheus/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env.production}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    depends_on:
+      - prometheus
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: postgres://nexus:${POSTGRES_PASSWORD}@db:5432/nexus?sslmode=disable
+    depends_on:
+      - db
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.62.0
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    depends_on:
+      - redis
     security_opt:
       - no-new-privileges:true
     logging: *default-logging
@@ -161,3 +235,5 @@ volumes:
   redisdata:
   caddy_data:
   caddy_config:
+  promdata:
+  grafanadata:

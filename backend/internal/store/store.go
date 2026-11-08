@@ -21,6 +21,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
+
+	"nexus/backend/internal/observability"
 )
 
 // Store bundles the isolated pools and Redis.
@@ -54,8 +56,27 @@ func OpenPool(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	return pgxpool.NewWithConfig(ctx, cfg)
 }
 
+type options struct {
+	observability bool
+}
+
+// Option customises New.
+type Option func(*options)
+
+// WithObservability attaches OTel tracing to both pools (one span per query,
+// tagged with the pool/role name) and to every Redis command. Spans are
+// no-ops until InitTracing installs a real provider, so tests and
+// tracing-less deployments pay only the context overhead.
+func WithObservability() Option {
+	return func(o *options) { o.observability = true }
+}
+
 // New opens both pools and pings them plus Redis.
-func New(ctx context.Context, socialURL, datingURL, redisAddr string) (*Store, error) {
+func New(ctx context.Context, socialURL, datingURL, redisAddr string, opts ...Option) (*Store, error) {
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
 	socialCfg, err := poolConfig(socialURL)
 	if err != nil {
 		return nil, err
@@ -63,6 +84,10 @@ func New(ctx context.Context, socialURL, datingURL, redisAddr string) (*Store, e
 	datingCfg, err := poolConfig(datingURL)
 	if err != nil {
 		return nil, err
+	}
+	if o.observability {
+		socialCfg.ConnConfig.Tracer = observability.PGXTracer{Pool: "social"}
+		datingCfg.ConnConfig.Tracer = observability.PGXTracer{Pool: "dating"}
 	}
 
 	social, err := pgxpool.NewWithConfig(ctx, socialCfg)
@@ -87,6 +112,9 @@ func New(ctx context.Context, socialURL, datingURL, redisAddr string) (*Store, e
 		return nil, fmt.Errorf("ping dating db: %w", err)
 	}
 	rdb := redis.NewClient(&redis.Options{Addr: redisAddr})
+	if o.observability {
+		rdb.AddHook(observability.RedisHook{})
+	}
 	if err := rdb.Ping(pingCtx).Err(); err != nil {
 		social.Close()
 		dating.Close()

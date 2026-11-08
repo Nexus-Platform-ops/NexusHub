@@ -1,0 +1,73 @@
+{
+  "uid": "nexus-safety",
+  "title": "Nexus Safety",
+  "tags": ["nexus", "safety", "phase-e"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {"from": "now-24h", "to": "now"},
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "HIGH report SLA breach?",
+      "description": "Age of the oldest open HIGH-severity (underage/nudity) report. Pages when > 1800s for 1m (NexusSafetyHighSLABreach).",
+      "gridPos": {"h": 7, "w": 8, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "max(nexus_safety_high_open_seconds)", "instant": true}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "s", "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "orange", "value": 900}, {"color": "red", "value": 1800}]}},
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Report intake rate by severity",
+      "gridPos": {"h": 7, "w": 16, "x": 8, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {
+          "expr": "sum by (severity) (rate(nexus_safety_report_duration_seconds_count[15m]))",
+          "legendFormat": "{{severity}}"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []}
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Report intake latency p95/p99 by severity (s)",
+      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 7},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(nexus_safety_report_duration_seconds_bucket[15m])) by (le, severity))",
+          "legendFormat": "p95 {{severity}}"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(nexus_safety_report_duration_seconds_bucket[15m])) by (le, severity))",
+          "legendFormat": "p99 {{severity}}"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Oldest open HIGH report age (s) — SLA window",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16},
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "targets": [
+        {"expr": "max(nexus_safety_high_open_seconds)", "legendFormat": "age (s)"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "s", "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "red", "value": 1800}]}},
+        "overrides": []
+      }
+    }
+  ]
+}

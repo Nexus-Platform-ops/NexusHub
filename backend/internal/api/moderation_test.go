@@ -250,3 +250,21 @@ func TestReports(t *testing.T) {
 		map[string]any{"target_kind": "post", "target_id": "1", "reason": "spam"}, "")
 	needStatus(t, st, http.StatusUnauthorized, resp)
 }
+
+// TestReportSeverity pins the reason→severity mapping used by the safety
+// HIGH SLA gauge and alert (underage/nudity are the paged categories).
+func TestReportSeverity(t *testing.T) {
+	for reason, want := range map[string]string{
+		"underage":     "high",
+		"nudity":       "high",
+		"harassment":   "normal",
+		"spam":         "normal",
+		"scam":         "normal",
+		"impersonation": "normal",
+		"other":        "normal",
+	} {
+		if got := reportSeverity(reason); got != want {
+			t.Errorf("reportSeverity(%q) = %q, want %q", reason, got, want)
+		}
+	}
+}

@@ -140,6 +140,8 @@ type radarNode struct {
 // real names and user ids are never exposed; fewer than k=3 candidates
 // degrades to an empty result to prevent re-identification.
 func (s *Server) handleRadar(w http.ResponseWriter, r *http.Request) {
+	pushStart := time.Now()
+	defer func() { s.Metrics.ObserveRadarPush(time.Since(pushStart)) }()
 	if !s.requireAdult(w, r) {
 		return
 	}
@@ -206,6 +208,7 @@ func (s *Server) handleRadar(w http.ResponseWriter, r *http.Request) {
 		if err := brows.Err(); err != nil {
 			return err
 		}
+		rankStart := time.Now()
 		rows, err := qq.Query(ctx,
 			`SELECT dp.user_id, dp.avatar_url,
 			        ST_Distance(rp.geog, ST_SetSRID(ST_MakePoint($2,$3),4326)::geography)
@@ -221,6 +224,7 @@ func (s *Server) handleRadar(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		defer rows.Close()
+		defer func() { s.Metrics.ObserveRank(time.Since(rankStart)) }()
 
 		type candidate struct {
 			id   int64
@@ -429,6 +433,7 @@ func (s *Server) handleWhisperRead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key := "whisper:" + id
+	wipeStart := time.Now()
 	val, err := s.Store.RDB.Get(r.Context(), key).Result()
 	if err == redis.Nil {
 		errorJSON(w, http.StatusGone, "whisper expired or already read")
@@ -445,9 +450,11 @@ func (s *Server) handleWhisperRead(w http.ResponseWriter, r *http.Request) {
 	}
 	if p.To != uid {
 		_ = s.Store.RDB.Del(r.Context(), key).Err()
+		s.Metrics.ObserveWhisperWipe(time.Since(wipeStart))
 		errorJSON(w, http.StatusForbidden, "whisper is not addressed to you")
 		return
 	}
 	_ = s.Store.RDB.Del(r.Context(), key).Err()
+	s.Metrics.ObserveWhisperWipe(time.Since(wipeStart))
 	writeJSON(w, http.StatusOK, map[string]any{"from": p.From, "body": p.Body, "deleted": true})
 }

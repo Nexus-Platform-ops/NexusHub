@@ -84,6 +84,8 @@ func (s *Server) handleCreatePost(w http.ResponseWriter, r *http.Request) {
 
 // handleListPosts returns the township-filtered feed, newest first.
 func (s *Server) handleListPosts(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer func() { s.Metrics.ObserveFeed(time.Since(start)) }()
 	q := r.URL.Query()
 	township := trimLimit(q.Get("township"), 80)
 	limit := 20

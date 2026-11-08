@@ -1,0 +1,51 @@
+Phase E soak — 48h x 15K concurrent, radar fanout + feed + whisper steady load
+===============================================================================
+
+STATUS: NOT EXECUTED LOCALLY (script ready; environment blocked)
+Date:   2026-11-07
+Spec:   48h x 15K WebSocket concurrent, radar fanout + feed + whisper steady
+        load; memory leak check.
+
+Why it was not run on the dev machine (honest record, not a pass):
+  1. k6 is not installed on the host and installs are out of scope per
+     project constraints (no system-level installs; Docker CLI off PATH).
+  2. 15,000 concurrent connections cannot be produced from a single dev
+     laptop against a local all-in-one Postgres/Redis/API — the load
+     generator itself would be the bottleneck and the numbers would be
+     meaningless.
+  3. DEVIATION (flagged per spec-overrides rule): the monolith has NO
+     WebSocket transport. Chat is REST polling; radar is client-pulled;
+     there is no push endpoint to hold 15K WS connections against.
+     e2e/k6/soak.js therefore ships with SOAK_WS=0 (REST hot-path branch:
+     radar poll + feed + whisper send/read churn) and a SOAK_WS=1 branch
+     targeting the future /api/v1/ws transport for when it ships.
+
+Executable runbook (staging soak environment required):
+  # 1. Dedicated soak env: OTP_DEBUG=1, rate limits raised, disposable DB.
+  # 2. Launch with the distributed k6 operator or a load-gen fleet:
+  k6 run -e BASE_URL=https://soak.nexus.internal \
+         -e SOAK_DURATION=48h -e SOAK_VUS=15000 \
+         -e SOAK_PHONE_PREFIX=099800 -e SOAK_OTP=000000 \
+         e2e/k6/soak.js
+  # 3. Server-side memory-leak watch, run alongside the whole soak:
+  while true; do
+    curl -s api:9090/metrics | grep -E '^go_memstats_heap_inuse_bytes'
+    sleep 60
+  done | tee heap-growth.log
+  # Leak signal: heap_inuse_bytes climbs across GC cycles for hours while
+  # request rate and p95 stay flat. Flat heap + flat p95 over 48h = pass.
+
+Local partial evidence collected instead:
+  - e2e/k6/soak.js        syntax-checked (node --check, ESM parse OK)
+  - DR-adjacent RTO proxy: scripts/dr_drill.sh pg_dump+restore timing on the
+    disposable nexus_ci_d DB — see evidence/dr-drill-result.json
+  - API integration suite incl. radar/whisper/feed handlers with the new
+    metrics instrumentation: go test ./internal/api (green, see phase CI log)
+
+Acceptance for the eventual run:
+  - http_req_failed < 1% for the full 48h window
+  - radar_p95 < 2s, feed_p95 < 1.5s, whisper_p95 < 1s (thresholds baked
+    into soak.js options.thresholds — a failing soak exits non-zero)
+  - go_memstats_heap_inuse_bytes stable across GC cycles (heap-growth.log)
+  - DB replication lag < 5s and Redis memory < 80% throughout (alerts
+    NexusDBReplicationLagHigh / NexusRedisMemoryHigh stay green)

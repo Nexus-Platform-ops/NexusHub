@@ -92,6 +92,12 @@ type Config struct {
 	EmailAPIURL   string
 	EmailAPIKey   string
 	EmailFrom     string
+
+	// MetricsAddr is the Prometheus scrape/admin listen address. Empty
+	// disables the listener (metrics still exist, they just aren't served).
+	// OTel tracing is configured through the standard OTEL_* environment
+	// variables (see internal/observability.TracingConfigFromEnv).
+	MetricsAddr string
 }
 
 func getenv(key, def string) string {
@@ -187,6 +193,8 @@ func FromEnv() (Config, error) {
 		EmailAPIURL:   os.Getenv("EMAIL_API_URL"),
 		EmailAPIKey:   os.Getenv("EMAIL_API_KEY"),
 		EmailFrom:     os.Getenv("EMAIL_FROM"),
+
+		MetricsAddr: getenv("METRICS_ADDR", ":9090"),
 	}
 	if c.SentryEnvironment == "" {
 		c.SentryEnvironment = c.Env

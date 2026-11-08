@@ -13,12 +13,14 @@ import (
 	"time"
 
 	"github.com/getsentry/sentry-go"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"nexus/backend/internal/attest"
 	"nexus/backend/internal/auth"
 	"nexus/backend/internal/config"
 	"nexus/backend/internal/crypto"
 	"nexus/backend/internal/email"
+	"nexus/backend/internal/observability"
 	"nexus/backend/internal/payments"
 	"nexus/backend/internal/ratelimit"
 	"nexus/backend/internal/sms"
@@ -36,6 +38,7 @@ type Server struct {
 	Crypto   *crypto.Service
 	Attest   attest.Verifier
 	Email    email.Sender
+	Metrics  *observability.Metrics
 }
 
 // New builds a Server with its own limiter and provider clients. A
@@ -88,6 +91,7 @@ func New(st *store.Store, jwt *auth.JWT, cfg config.Config) (*Server, error) {
 			APIKey:   cfg.EmailAPIKey,
 			From:     cfg.EmailFrom,
 		}),
+		Metrics: observability.NewMetrics(),
 	}, nil
 }
 
@@ -188,6 +192,10 @@ func (s *Server) Routes() http.Handler {
 	if s.Cfg.Env == config.EnvDevelopment {
 		handler = devCORS(handler)
 	}
+	// Trace propagation + server spans (gateway level), then request-count
+	// and latency metrics, then access logging.
+	handler = otelhttp.NewMiddleware("nexus-gateway")(handler)
+	handler = s.Metrics.Middleware(handler)
 	return logMiddleware(handler)
 }
 

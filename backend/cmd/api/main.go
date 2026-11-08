@@ -36,7 +36,18 @@ func main() {
 		log.Printf("sentry reporting enabled (environment=%s)", cfg.SentryEnvironment)
 	}
 	ctx := context.Background()
-	st, err := store.New(ctx, cfg.SocialDatabaseURL, cfg.DatingDatabaseURL, cfg.RedisAddr)
+	shutdownTracing, err := observability.InitTracing(ctx, "nexus-api", cfg.Env, observability.TracingConfigFromEnv())
+	if err != nil {
+		log.Fatalf("tracing: %v", err)
+	}
+	defer func() {
+		if err := shutdownTracing(context.Background()); err != nil {
+			log.Printf("tracing shutdown: %v", err)
+		}
+	}()
+
+	st, err := store.New(ctx, cfg.SocialDatabaseURL, cfg.DatingDatabaseURL, cfg.RedisAddr,
+		store.WithObservability())
 	if err != nil {
 		log.Fatalf("store: %v", err)
 	}
@@ -61,6 +72,30 @@ func main() {
 			log.Fatalf("listen: %v", err)
 		}
 	}()
+
+	// Admin/metrics listener: Prometheus scrapes /metrics here, separate
+	// from the public surface. Empty METRICS_ADDR disables it.
+	if cfg.MetricsAddr != "" {
+		metricsServer := &http.Server{
+			Addr:              cfg.MetricsAddr,
+			Handler:           srv.Metrics.Handler(),
+			ReadHeaderTimeout: 5 * time.Second,
+		}
+		go func() {
+			log.Printf("metrics listening on %s", cfg.MetricsAddr)
+			if err := metricsServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Fatalf("metrics listen: %v", err)
+			}
+		}()
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			_ = metricsServer.Shutdown(shutdownCtx)
+		}()
+	}
+
+	// Safety SLA gauge: age of the oldest open HIGH-severity report.
+	go srv.RunSafetyGauge(ctx, 30*time.Second)
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
