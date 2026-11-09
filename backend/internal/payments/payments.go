@@ -101,8 +101,16 @@ type Config struct {
 
 // New returns the configured provider. It never returns nil.
 func New(c Config) Provider {
-	if c.Provider == HTTP {
+	switch c.Provider {
+	case HTTP:
 		return newHTTP(c)
+	case Stripe:
+		return NewStripe(StripeConfig{
+			SecretKey:  c.APIKey,
+			APIBase:    c.APIURL,
+			HTTPClient: c.HTTPClient,
+			Timeout:    c.Timeout,
+		})
 	}
 	return logProvider{}
 }

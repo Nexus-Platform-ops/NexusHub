@@ -30,12 +30,14 @@ import (
 // Server wires the HTTP surface to the stores and outbound providers.
 type Server struct {
 	Store    *store.Store
+	SubStore payments.SubscriptionStore
 	JWT      *auth.JWT
 	RL       *ratelimit.Limiter
 	AttestRL *ratelimit.Limiter // nonce issues: 5 per hour per device (user)
 	Cfg      config.Config
 	SMS      sms.Sender
 	Payments payments.Provider
+	ReceiptValidator payments.ReceiptValidator
 	Crypto   *crypto.Service
 	Attest   attest.Verifier
 	Email    email.Sender
@@ -64,6 +66,7 @@ func New(st *store.Store, jwt *auth.JWT, cfg config.Config) (*Server, error) {
 	}
 	return &Server{
 		Store:    st,
+		SubStore: store.NewSubStore(st.Social),
 		JWT:      jwt,
 		RL:       ratelimit.New(cfg.RateLimitPerMin, time.Minute),
 		AttestRL: ratelimit.New(attestNoncePerHour, time.Hour),
@@ -76,11 +79,12 @@ func New(st *store.Store, jwt *auth.JWT, cfg config.Config) (*Server, error) {
 			Timeout:  10 * time.Second,
 		}),
 		Payments: payments.New(payments.Config{
-			Provider: cfg.PaymentProvider,
-			APIURL:   cfg.PaymentAPIURL,
-			APIKey:   cfg.PaymentAPIKey,
-			Timeout:  10 * time.Second,
+			Provider:   cfg.PaymentProvider,
+			APIURL:     cfg.PaymentAPIURL,
+			APIKey:     cfg.PaymentAPIKey,
+			Timeout:    10 * time.Second,
 		}),
+		ReceiptValidator: payments.StubReceiptValidator{},
 		Crypto: svc,
 		Attest: attest.New(attest.Config{
 			Provider:       cfg.AttestationProvider,
@@ -187,6 +191,15 @@ func (s *Server) Routes() http.Handler {
 	// Deliberately not IP-limited: a dropped callback means a paid user does
 	// not receive coins. The HMAC signature and timestamp window are the guard.
 	mux.HandleFunc("POST /api/v1/payments/webhook", s.handlePaymentWebhook)
+
+	// Subscriptions (Phase F: Nexus+).
+	mux.Handle("GET /api/v1/subscriptions/plans", authed(s.handleListPlans))
+	mux.Handle("GET /api/v1/subscriptions/me", authed(s.handleGetSubscription))
+	mux.Handle("POST /api/v1/subscriptions", authed(s.handleCreateSubscription))
+	mux.Handle("DELETE /api/v1/subscriptions", authed(s.handleCancelSubscription))
+	mux.Handle("GET /api/v1/subscriptions/features/{feature}", authed(s.handleCheckFeature))
+	// Stripe webhook — signed by Stripe, not by user auth.
+	mux.HandleFunc("POST /api/v1/webhooks/stripe", s.handleStripeWebhook)
 
 	// Hyper-local marketplace.
 	mux.Handle("GET /api/v1/market/products", authed(s.handleListProducts))

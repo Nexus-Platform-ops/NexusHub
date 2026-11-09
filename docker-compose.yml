@@ -66,6 +66,9 @@ services:
       PAYMENT_API_URL: ${PAYMENT_API_URL:-}
       PAYMENT_API_KEY: ${PAYMENT_API_KEY:-}
       PAYMENT_RETURN_URL: ${PAYMENT_RETURN_URL:-http://localhost:3000/wallet}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_API_BASE: ${STRIPE_API_BASE:-}
     depends_on:
       db:
         condition: service_healthy

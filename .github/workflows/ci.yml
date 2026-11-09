@@ -79,6 +79,8 @@ jobs:
             SMS_API_URL=https://sms.example.com/send SMS_API_KEY=ci SMS_SENDER_ID=Nexus \
             PAYMENT_API_URL=https://pay.example.com/charges PAYMENT_API_KEY=ci \
             PAYMENT_RETURN_URL=https://ci.example.com/wallet \
+            STRIPE_SECRET_KEY=sk_test_ci_placeholder_key_for_validation \
+            STRIPE_WEBHOOK_SECRET=whsec_test_ci_placeholder \
             NEXUS_PUBLIC_API_URL=https://ci.example.com \
             GRAFANA_ADMIN_PASSWORD=ci \
             DOMAIN=ci.example.com ACME_EMAIL=ci@example.com \

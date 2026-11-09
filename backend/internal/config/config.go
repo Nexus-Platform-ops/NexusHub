@@ -40,11 +40,18 @@ type Config struct {
 	SMSSenderID string
 
 	// Payment provider for coin top-ups. "log" creates intents without a
-	// checkout URL and is development-only; production requires "http".
+	// checkout URL and is development-only; production requires "http" or
+	// "stripe".
 	PaymentProvider  string
 	PaymentAPIURL    string
 	PaymentAPIKey    string
 	PaymentReturnURL string
+
+	// Stripe (Phase F). Optional in development; required when
+	// PAYMENT_PROVIDER=stripe.
+	StripeSecretKey     string // sk_live_... or sk_test_...
+	StripeWebhookSecret string // whsec_...
+	StripeAPIBase       string // override for testing
 
 	// Social login providers (Facebook / TikTok / Telegram). Optional: the
 	// endpoints answer 503 while a provider is unconfigured. The *Base
@@ -165,6 +172,10 @@ func FromEnv() (Config, error) {
 		PaymentAPIKey:    os.Getenv("PAYMENT_API_KEY"),
 		PaymentReturnURL: os.Getenv("PAYMENT_RETURN_URL"),
 
+		StripeSecretKey:     os.Getenv("STRIPE_SECRET_KEY"),
+		StripeWebhookSecret: os.Getenv("STRIPE_WEBHOOK_SECRET"),
+		StripeAPIBase:       os.Getenv("STRIPE_API_BASE"),
+
 		FacebookAppID:      os.Getenv("FACEBOOK_APP_ID"),
 		FacebookAppSecret:  os.Getenv("FACEBOOK_APP_SECRET"),
 		FBGraphBase:        os.Getenv("FB_GRAPH_BASE"),
@@ -215,8 +226,8 @@ func FromEnv() (Config, error) {
 	if c.SMSProvider != "log" && c.SMSProvider != "http" {
 		errs = append(errs, errors.New("SMS_PROVIDER must be log or http"))
 	}
-	if c.PaymentProvider != "log" && c.PaymentProvider != "http" {
-		errs = append(errs, errors.New("PAYMENT_PROVIDER must be log or http"))
+	if c.PaymentProvider != "log" && c.PaymentProvider != "http" && c.PaymentProvider != "stripe" {
+		errs = append(errs, errors.New("PAYMENT_PROVIDER must be log, http, or stripe"))
 	}
 	if c.SocialDatabaseURL == "" {
 		errs = append(errs, errors.New("DATABASE_URL is required"))
@@ -316,9 +327,9 @@ func (c Config) Validate() error {
 	}
 	// A log payment provider would hand clients intents with no checkout URL,
 	// so paid top-ups could never complete.
-	if c.PaymentProvider != "http" {
-		errs = append(errs, errors.New("PAYMENT_PROVIDER must be http outside development"))
-	} else {
+	if c.PaymentProvider != "http" && c.PaymentProvider != "stripe" {
+		errs = append(errs, errors.New("PAYMENT_PROVIDER must be http or stripe outside development"))
+	} else if c.PaymentProvider == "http" {
 		if !strings.HasPrefix(c.PaymentAPIURL, "https://") {
 			errs = append(errs, errors.New("PAYMENT_API_URL must be an https:// URL"))
 		}
@@ -330,6 +341,16 @@ func (c Config) Validate() error {
 		}
 		if !strings.HasPrefix(c.PaymentReturnURL, "https://") {
 			errs = append(errs, errors.New("PAYMENT_RETURN_URL must be an https:// URL"))
+		}
+	} else if c.PaymentProvider == "stripe" {
+		if c.StripeSecretKey == "" {
+			errs = append(errs, errors.New("STRIPE_SECRET_KEY is required when PAYMENT_PROVIDER=stripe"))
+		}
+		if looksLikeDevSecret(c.StripeSecretKey) {
+			errs = append(errs, errors.New("STRIPE_SECRET_KEY still contains a development placeholder"))
+		}
+		if c.StripeWebhookSecret == "" {
+			errs = append(errs, errors.New("STRIPE_WEBHOOK_SECRET is required when PAYMENT_PROVIDER=stripe"))
 		}
 	}
 	// Phase D: a local master key would put key material in an env var

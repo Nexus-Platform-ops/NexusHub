@@ -76,6 +76,33 @@ class CoinTxn {
   final String kind;
 }
 
+class SubscriptionPlan {
+  SubscriptionPlan.fromJson(Map<String, dynamic> j)
+      : id = (j['id'] as String?) ?? '',
+        name = (j['name'] as String?) ?? '',
+        duration = (j['duration'] as String?) ?? '',
+        features = ((j['features'] as List?) ?? const [])
+            .cast<String>()
+            .toList();
+  final String id, name, duration;
+  final List<String> features;
+}
+
+class Subscription {
+  Subscription.fromJson(Map<String, dynamic> j)
+      : id = (j['id'] as num?)?.toInt() ?? 0,
+        planId = (j['plan_id'] as String?) ?? '',
+        provider = (j['provider'] as String?) ?? '',
+        status = (j['status'] as String?) ?? '',
+        currentPeriodEnd = (j['current_period_end'] as String?) ?? '',
+        cancelAtPeriodEnd = (j['cancel_at_period_end'] as bool?) ?? false;
+  final int id;
+  final String planId, provider, status, currentPeriodEnd;
+  final bool cancelAtPeriodEnd;
+
+  bool get isActive => status == 'active' || status == 'trialing';
+}
+
 class DatingProfile {
   DatingProfile.fromJson(Map<String, dynamic> j)
       : nickname = (j['nickname'] as String?) ?? '',
@@ -290,6 +317,40 @@ class NexusApi {
 
   Future<void> unlinkSocial(String provider) =>
       _send('DELETE', '/api/v1/auth/social/link/$provider');
+
+  // ---- subscriptions (Nexus+) ----
+  Future<List<SubscriptionPlan>> subscriptionPlans() async {
+    final j = await _send('GET', '/api/v1/subscriptions/plans');
+    return (j['plans'] as List)
+        .map((e) => SubscriptionPlan.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<Subscription?> mySubscription() async {
+    final j = await _send('GET', '/api/v1/subscriptions/me');
+    final sub = j['subscription'];
+    if (sub == null) return null;
+    return Subscription.fromJson(sub as Map<String, dynamic>);
+  }
+
+  Future<Map<String, dynamic>> createSubscription({
+    required String platform,
+    required String receiptToken,
+    required String planId,
+  }) =>
+      _send('POST', '/api/v1/subscriptions', body: {
+        'platform': platform,
+        'receipt_token': receiptToken,
+        'plan_id': planId,
+      });
+
+  Future<void> cancelSubscription() =>
+      _send('DELETE', '/api/v1/subscriptions');
+
+  Future<bool> checkFeature(String feature) async {
+    final j = await _send('GET', '/api/v1/subscriptions/features/$feature');
+    return j['enabled'] == true;
+  }
 
   // ---- safety: 18+ gate, reports, blocks ----
   Future<Map<String, dynamic>> setBirthDate(String dateOfBirth) =>
