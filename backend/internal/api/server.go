@@ -29,19 +29,20 @@ import (
 
 // Server wires the HTTP surface to the stores and outbound providers.
 type Server struct {
-	Store    *store.Store
-	SubStore payments.SubscriptionStore
-	JWT      *auth.JWT
-	RL       *ratelimit.Limiter
-	AttestRL *ratelimit.Limiter // nonce issues: 5 per hour per device (user)
-	Cfg      config.Config
-	SMS      sms.Sender
-	Payments payments.Provider
+	Store      *store.Store
+	SubStore   payments.SubscriptionStore
+	NotifStore *store.NotificationStore
+	JWT        *auth.JWT
+	RL         *ratelimit.Limiter
+	AttestRL   *ratelimit.Limiter // nonce issues: 5 per hour per device (user)
+	Cfg        config.Config
+	SMS        sms.Sender
+	Payments   payments.Provider
 	ReceiptValidator payments.ReceiptValidator
-	Crypto   *crypto.Service
-	Attest   attest.Verifier
-	Email    email.Sender
-	Metrics  *observability.Metrics
+	Crypto     *crypto.Service
+	Attest     attest.Verifier
+	Email      email.Sender
+	Metrics    *observability.Metrics
 }
 
 // New builds a Server with its own limiter and provider clients. A
@@ -65,9 +66,10 @@ func New(st *store.Store, jwt *auth.JWT, cfg config.Config) (*Server, error) {
 		return nil, fmt.Errorf("crypto service: %w", err)
 	}
 	return &Server{
-		Store:    st,
-		SubStore: store.NewSubStore(st.Social),
-		JWT:      jwt,
+		Store:      st,
+		SubStore:   store.NewSubStore(st.Social),
+		NotifStore: store.NewNotificationStore(st.Social),
+		JWT:        jwt,
 		RL:       ratelimit.New(cfg.RateLimitPerMin, time.Minute),
 		AttestRL: ratelimit.New(attestNoncePerHour, time.Hour),
 		Cfg:      cfg,
@@ -200,6 +202,11 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /api/v1/subscriptions/features/{feature}", authed(s.handleCheckFeature))
 	// Stripe webhook — signed by Stripe, not by user auth.
 	mux.HandleFunc("POST /api/v1/webhooks/stripe", s.handleStripeWebhook)
+
+	// In-app notifications (user retention).
+	mux.Handle("GET /api/v1/notifications", authed(s.handleListNotifications))
+	mux.Handle("POST /api/v1/notifications/{id}/read", authed(s.handleMarkNotificationRead))
+	mux.Handle("POST /api/v1/notifications/read-all", authed(s.handleMarkAllNotificationsRead))
 
 	// Hyper-local marketplace.
 	mux.Handle("GET /api/v1/market/products", authed(s.handleListProducts))
