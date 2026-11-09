@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'api.dart';
 import 'paywall.dart';
+import 'profile_settings.dart';
 import 'screens.dart';
 import 'state.dart';
 import 'theme.dart';
@@ -116,6 +117,28 @@ class _NexusShellState extends ConsumerState<NexusShell> {
           ]),
         ]),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.person_outline, color: NexusColors.brand),
+            tooltip: 'Profile',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const ProviderScope(child: ProfileScreen()),
+                ),
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings, color: NexusColors.brand),
+            tooltip: 'Settings',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const ProviderScope(child: SettingsScreen()),
+                ),
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.star, color: NexusColors.brand),
             tooltip: 'Nexus+',

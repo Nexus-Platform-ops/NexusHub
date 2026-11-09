@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"nexus/backend/internal/store"
 )
 
 type Post struct {
@@ -177,6 +179,12 @@ func (s *Server) handleReact(w http.ResponseWriter, r *http.Request) {
 		errorJSON(w, http.StatusNotFound, "post not found")
 		return
 	}
+
+	// Get post author for notification
+	var authorID int64
+	_ = s.Store.Social.QueryRow(r.Context(),
+		`SELECT user_id FROM social.posts WHERE id=$1`, id).Scan(&authorID)
+
 	var current string
 	err := s.Store.Social.QueryRow(r.Context(),
 		`SELECT kind FROM social.reactions WHERE post_id=$1 AND user_id=$2`, id, uid).Scan(&current)
@@ -200,6 +208,17 @@ func (s *Server) handleReact(w http.ResponseWriter, r *http.Request) {
 			`INSERT INTO social.reactions (post_id, user_id, kind) VALUES ($1,$2,$3)`, id, uid, req.Kind); err != nil {
 			serverError(w, "add reaction", err)
 			return
+		}
+		// Send notification to post author (only on new like, not on remove)
+		if authorID != uid && authorID > 0 {
+			_ = s.NotifStore.Create(r.Context(), &store.Notification{
+				UserID:   authorID,
+				Type:     "like",
+				Title:    "Someone liked your post",
+				Body:     "Check out who liked your post!",
+				ActorID:  &uid,
+				TargetID: &id,
+			})
 		}
 	}
 	var count int64
@@ -247,6 +266,22 @@ func (s *Server) handleAddComment(w http.ResponseWriter, r *http.Request) {
 		serverError(w, "add comment", err)
 		return
 	}
+
+	// Send notification to post author
+	var authorID int64
+	_ = s.Store.Social.QueryRow(r.Context(),
+		`SELECT user_id FROM social.posts WHERE id=$1`, id).Scan(&authorID)
+	if authorID != uid && authorID > 0 {
+		_ = s.NotifStore.Create(r.Context(), &store.Notification{
+			UserID:   authorID,
+			Type:     "comment",
+			Title:    "Someone commented on your post",
+			Body:     req.Body,
+			ActorID:  &uid,
+			TargetID: &id,
+		})
+	}
+
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"id": commentID, "post_id": id, "user_id": uid, "body": req.Body, "created_at": createdAt,
 	})

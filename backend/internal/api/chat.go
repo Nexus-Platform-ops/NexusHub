@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"nexus/backend/internal/store"
 )
 
 type Thread struct {
@@ -187,6 +189,23 @@ func (s *Server) handlePostMessage(w http.ResponseWriter, r *http.Request) {
 		serverError(w, "post message", err)
 		return
 	}
+
+	// Send notification to the other thread member
+	peerID := t.PeerID
+	if t.PeerID == uid {
+		peerID = t.OwnerID
+	}
+	if peerID != uid && peerID > 0 {
+		_ = s.NotifStore.Create(r.Context(), &store.Notification{
+			UserID:   peerID,
+			Type:     "message",
+			Title:    "New message",
+			Body:     req.Body,
+			ActorID:  &uid,
+			TargetID: &t.ID,
+		})
+	}
+
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"id": msgID, "thread_id": t.ID, "sender_id": uid,
 		"body": req.Body, "created_at": createdAt,

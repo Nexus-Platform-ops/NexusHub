@@ -212,6 +212,8 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /api/v1/market/products", authed(s.handleListProducts))
 	mux.Handle("POST /api/v1/market/products", authed(s.handleCreateProduct))
 	mux.Handle("POST /api/v1/market/orders", authed(s.handleCreateOrder))
+	mux.Handle("GET /api/v1/market/sellers/{id}", authed(s.handleGetSellerInfo))
+	mux.Handle("POST /api/v1/market/ratings", authed(s.handleCreateSellerRating))
 
 	// Unified chat (personal vs business).
 	mux.Handle("POST /api/v1/chat/threads", authed(s.handleCreateThread))

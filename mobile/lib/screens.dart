@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'api.dart';
+import 'dating_ui.dart';
 import 'state.dart';
 import 'social_login.dart';
 import 'theme.dart';
@@ -178,84 +179,10 @@ class _RadarView extends ConsumerWidget {
       loading: () => const LoadingView(label: 'Scanning BeeTalk Radar…'),
       error: (e, _) => ErrorView(message: e.toString(), onRetry: () => ref.invalidate(radarProvider)),
       data: (d) {
-        final nodes = (d['nodes'] as List?) ?? const [];
-        final degraded = d['degraded'] == true;
-        return Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              SizedBox(
-                width: 224,
-                height: 224,
-                child: Stack(alignment: Alignment.center, children: [
-                  Container(
-                    width: 224, height: 224,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                          color: NexusColors.dating.withValues(alpha: 0.3)),
-                    ),
-                  ),
-                  Container(
-                    width: 144, height: 144,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                          color: NexusColors.dating.withValues(alpha: 0.4)),
-                      color: NexusColors.dating.withValues(alpha: 0.08),
-                    ),
-                    child: const Center(
-                        child: Icon(Icons.favorite,
-                            color: NexusColors.dating, size: 40)),
-                  ),
-                  for (var i = 0; i < nodes.length; i++)
-                    _radarNode(context, ref, nodes[i] as Map<String, dynamic>, i),
-                ]),
-              ),
-              const SizedBox(height: 16),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Text(
-                  degraded
-                      ? (d['message'] as String? ??
-                          'Fewer than 3 active users nearby — results hidden to protect member privacy.')
-                      : 'Scanning BeeTalk Radar users nearby…',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 12, color: NexusColors.muted),
-                ),
-              ),
-            ],
-          ),
-        );
+        final nodes = ((d['nodes'] as List?) ?? const [])
+            .cast<Map<String, dynamic>>();
+        return AnimatedRadar(nodes: nodes);
       },
-    );
-  }
-
-  Widget _radarNode(
-      BuildContext context, WidgetRef ref, Map<String, dynamic> n, int i) {
-    // Distribute nodes around the ring.
-    const positions = [
-      Alignment(-0.55, -0.75), Alignment(0.55, 0.75), Alignment(0.75, -0.55),
-      Alignment(-0.75, 0.55), Alignment(0.0, -0.9),
-    ];
-    return Align(
-      alignment: positions[i % positions.length],
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onLongPress: () => _showNodeActions(context, ref, n),
-        child: Padding(
-          padding: const EdgeInsets.all(6),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            CircleAvatar(
-              radius: 16,
-              backgroundColor: NexusColors.dating.withValues(alpha: 0.25),
-              child: const Icon(Icons.person, size: 16, color: NexusColors.dating),
-            ),
-            Text('${n['handle']} (${n['distance_bucket']})',
-                style: const TextStyle(fontSize: 8, fontWeight: FontWeight.bold)),
-          ]),
-        ),
-      ),
     );
   }
 }
@@ -268,8 +195,6 @@ class _CardsView extends ConsumerStatefulWidget {
 }
 
 class _CardsViewState extends ConsumerState<_CardsView> {
-  int _card = 0;
-
   void _toast(String m) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
@@ -284,83 +209,24 @@ class _CardsViewState extends ConsumerState<_CardsView> {
       data: (d) {
         final nodes = ((d['nodes'] as List?) ?? const [])
             .cast<Map<String, dynamic>>();
-        if (nodes.isEmpty || _card >= nodes.length) {
-          return const EmptyView(
-              icon: Icons.favorite_outline, label: 'No dating cards nearby right now.');
-        }
-        final n = nodes[_card];
-        return Padding(
-          padding: const EdgeInsets.all(12),
-          child: Card(
-            clipBehavior: Clip.antiAlias,
-            child: Column(children: [
-              Container(
-                height: 240,
-                width: double.infinity,
-                color: NexusColors.dating.withValues(alpha: 0.1),
-                child: const Center(
-                    child: Icon(Icons.face_retouching_natural,
-                        size: 64, color: NexusColors.dating)),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(children: [
-                  Text('${n['handle']}',
-                      style: const TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.bold)),
-                  Text('${n['distance_bucket']} away · anonymous BeeTalk node',
-                      style: TextStyle(
-                          fontSize: 10, color: NexusColors.muted)),
-                  Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                    TextButton.icon(
-                      onPressed: () => _showReportSheet(context, ref,
-                          targetKind: 'user',
-                          targetId: n['node_id'] as String,
-                          label: '${n['handle']}'),
-                      icon: const Icon(Icons.flag_outlined, size: 16),
-                      label: const Text('Report'),
-                    ),
-                    TextButton.icon(
-                      onPressed: () => _confirmBlock(context, ref,
-                          nodeId: n['node_id'] as String,
-                          label: '${n['handle']}'),
-                      icon: const Icon(Icons.block, size: 16),
-                      label: const Text('Block'),
-                    ),
-                  ]),
-                  const SizedBox(height: 10),
-                  Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
-                    IconButton.filledTonal(
-                      onPressed: () => _swipe(n['node_id'] as String, 'pass'),
-                      icon: const Icon(Icons.close, color: NexusColors.muted),
-                    ),
-                    IconButton.filled(
-                      style: FilledButton.styleFrom(
-                          backgroundColor: NexusColors.dating),
-                      onPressed: () => _swipe(n['node_id'] as String, 'like'),
-                      icon: const Icon(Icons.favorite, color: Colors.white),
-                    ),
-                  ]),
-                ]),
-              ),
-            ]),
-          ),
+        return SwipeableCardStack(
+          nodes: nodes,
+          onSwipe: (nodeId, action) async {
+            try {
+              final res = await ref.read(apiProvider).swipe(nodeId, action);
+              if (res['matched'] == true) {
+                widget.onWhisper();
+                return true;
+              }
+              return false;
+            } on ApiError catch (e) {
+              _toast(e.message);
+              return false;
+            }
+          },
         );
       },
     );
-  }
-
-  Future<void> _swipe(String nodeId, String action) async {
-    try {
-      final res = await ref.read(apiProvider).swipe(nodeId, action);
-      if (res['matched'] == true) {
-        _toast('Matched! Whisper chat unlocked 💬');
-        widget.onWhisper();
-      }
-    } on ApiError catch (e) {
-      _toast(e.message);
-    }
-    if (mounted) setState(() => _card++);
   }
 }
 

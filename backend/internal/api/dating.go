@@ -334,6 +334,21 @@ func (s *Server) handleSwipe(w http.ResponseWriter, r *http.Request) {
 					return err
 				}
 				matched = true
+				// Send match notifications to both users
+				_ = s.NotifStore.Create(ctx, &store.Notification{
+					UserID:   uid,
+					Type:     "match",
+					Title:    "It's a Match! 🎉",
+					Body:     "You and someone liked each other. Start chatting!",
+					ActorID:  &target,
+				})
+				_ = s.NotifStore.Create(ctx, &store.Notification{
+					UserID:   target,
+					Type:     "match",
+					Title:    "It's a Match! 🎉",
+					Body:     "You and someone liked each other. Start chatting!",
+					ActorID:  &uid,
+				})
 			}
 		}
 		return nil
