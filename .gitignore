@@ -27,3 +27,11 @@ Nexus-SuperApp-/
 # OS / editor
 .DS_Store
 Thumbs.db
+
+# Build artifacts
+mobile/build/
+**/build/
+*.apk
+*.aab
+*.dill
+*.so
